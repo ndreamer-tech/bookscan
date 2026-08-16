@@ -402,6 +402,40 @@ object PageDetector {
         }
     }
 
+    /**
+     * 가운데 색 덩어리의 사각 범위. 글자가 거의 없는 표지에서 마지막 수단으로 쓴다.
+     * (좌표는 원본 크기 기준)
+     */
+    fun centerRegionBox(rgba: Mat): Rect? {
+        val width = rgba.cols()
+        if (width < 200 || rgba.rows() < 200) return null
+        val scale = (WORK_WIDTH / width).coerceAtMost(1.0)
+        val small = Mat()
+        var mask: Mat? = null
+        try {
+            Imgproc.resize(rgba, small, Size(), scale, scale, Imgproc.INTER_AREA)
+            mask = centerColorMask(small)
+            val contours = ArrayList<MatOfPoint>()
+            val hierarchy = Mat()
+            Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            hierarchy.release()
+            val biggest = contours.maxByOrNull { Imgproc.contourArea(it) }
+            val box = biggest?.let { Imgproc.boundingRect(it) }
+            contours.forEach { it.release() }
+            if (box == null) return null
+            val frame = small.cols().toDouble() * small.rows()
+            if (box.width.toDouble() * box.height < 0.15 * frame) return null
+            return Rect(
+                (box.x / scale).toInt(), (box.y / scale).toInt(),
+                (box.width / scale).toInt(), (box.height / scale).toInt()
+            )
+        } catch (e: Throwable) {
+            return null
+        } finally {
+            small.release(); mask?.release()
+        }
+    }
+
     /** 이미 흑백으로 만든 그림에서 바로 네 귀퉁이를 찾는다. */
     fun detectQuadIn(gray: Mat): FloatArray? {
         val width = gray.cols()

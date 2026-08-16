@@ -209,6 +209,9 @@ class MainActivity : AppCompatActivity() {
         ui.overlay.update(smoothed(r), r.srcWidth, r.srcHeight, r.allOk)
 
         val marks = buildString {
+            append("v")
+            append(BuildConfig.VERSION_NAME)
+            append("  ")
             append(if (r.hasQuad) "윤곽 ✓" else "윤곽 ✗")
             append(if (r.fillOk) "  채움 ✓" else "  채움 ✗")
             append(if (r.sharpOk) "  초점 ✓" else "  초점 ✗")
@@ -361,9 +364,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 updateCount()
                 ui.status.text = when {
-                    result.split -> "두 쪽으로 나눠 저장 (${shotCount - 1}·${shotCount}쪽) · 다음 장으로"
-                    result.cropped -> "${shotCount}장째 — 윤곽대로 잘라 저장 · 다음 쪽으로"
-                    else -> "${shotCount}장째 — 윤곽을 못 찾아 통째로 저장(배경 포함)"
+                    result.split -> "두 쪽 저장 (${shotCount - 1}·${shotCount}쪽) [${result.how}]"
+                    result.cropped -> "${shotCount}장째 잘라 저장 [${result.how}] · 다음 쪽으로"
+                    else -> "${shotCount}장째 — 통째로 저장 [${result.how}]"
                 }
             }
         }.start()

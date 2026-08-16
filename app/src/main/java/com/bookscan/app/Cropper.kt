@@ -37,8 +37,8 @@ object Cropper {
     /** 쪽 나누기 방식 */
     enum class PageMode { AUTO, SINGLE, SPREAD }
 
-    /** (잘랐는가, 두 쪽으로 나눴는가) */
-    class Result(val cropped: Boolean, val split: Boolean)
+    /** (잘랐는가, 두 쪽으로 나눴는가, 어떤 방법으로) */
+    class Result(val cropped: Boolean, val split: Boolean, val how: String = "-")
 
     fun autoCrop(
         context: Context,
@@ -47,21 +47,44 @@ object Cropper {
         nextIndex: Int,
         mode: PageMode,
     ): Result {
-        val bitmap = decodeUpright(context, uri) ?: return Result(false, false)
+        val bitmap = decodeUpright(context, uri) ?: return Result(false, false, "읽기실패")
         val mat = Mat()
         val warped = Mat()
         try {
             Utils.bitmapToMat(bitmap, mat)
-            if (mat.empty()) return Result(false, false)
+            if (mat.empty()) return Result(false, false, "빈사진")
             val rough = PageDetector.detectQuadInColor(mat)
             if (rough == null) {
-                // 페이지 테두리를 못 찾았어도 글자 영역 기준으로 다듬어 저장한다
+                // ① 테두리를 못 찾음 → 글자 영역으로 다듬기
                 val finished = PageFinisher.finish(mat)
-                try {
-                    return Result(writeMat(context, uri, finished), false)
-                } finally {
-                    finished.release()
+                val changed = finished.cols() != mat.cols() || finished.rows() != mat.rows()
+                if (changed) {
+                    try {
+                        return Result(writeMat(context, uri, finished), false, "글자")
+                    } finally {
+                        finished.release()
+                    }
                 }
+                finished.release()
+                // ② 글자도 못 찾음(표지 등) → 가운데 색 덩어리로 잘라내기
+                val box = PageDetector.centerRegionBox(mat)
+                if (box != null) {
+                    val safe = Rect(
+                        box.x.coerceIn(0, mat.cols() - 2),
+                        box.y.coerceIn(0, mat.rows() - 2),
+                        box.width.coerceAtMost(mat.cols() - box.x),
+                        box.height.coerceAtMost(mat.rows() - box.y)
+                    )
+                    if (safe.width > 200 && safe.height > 200) {
+                        val cut = Mat(mat, safe)
+                        try {
+                            return Result(writeMat(context, uri, cut), false, "색")
+                        } finally {
+                            cut.release()
+                        }
+                    }
+                }
+                return Result(false, false, "실패")
             }
             // 테두리 직선에 맞춰 모서리를 정밀하게 다듬는다
             val gray = Mat()
@@ -85,7 +108,7 @@ object Cropper {
             val (tl, tr, br, bl) = points
             val width = max(dist(tl, tr), dist(bl, br)).toInt()
             val height = max(dist(tl, bl), dist(tr, br)).toInt()
-            if (width < 200 || height < 200) return Result(false, false)
+            if (width < 200 || height < 200) return Result(false, false, "너무작음")
 
             val from = MatOfPoint2f(tl, tr, br, bl)
             val to = MatOfPoint2f(
@@ -115,7 +138,7 @@ object Cropper {
                     val savedLeft = writeMat(context, uri, leftPage)
                     val rightUri = PhotoStore.newImageUri(context, session, nextIndex)
                     val savedRight = rightUri != null && writeMat(context, rightUri, rightPage)
-                    return Result(savedLeft, savedLeft && savedRight)
+                    return Result(savedLeft, savedLeft && savedRight, "테두리+분할")
                 } finally {
                     leftMat.release(); rightMat.release()
                     leftPage.release(); rightPage.release()
@@ -123,12 +146,12 @@ object Cropper {
             }
             val page = PageFinisher.finish(warped)
             try {
-                return Result(writeMat(context, uri, page), false)
+                return Result(writeMat(context, uri, page), false, "테두리")
             } finally {
                 page.release()
             }
         } catch (e: Throwable) {
-            return Result(false, false)
+            return Result(false, false, "오류")
         } finally {
             mat.release(); warped.release(); bitmap.recycle()
         }

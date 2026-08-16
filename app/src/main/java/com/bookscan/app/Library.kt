@@ -3,6 +3,7 @@ package com.bookscan.app
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.MediaStore
@@ -23,6 +24,9 @@ object Library {
     class Page(val uri: Uri, val name: String)
 
     private val images = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+
+    /** 폴더를 만들려고 넣어 두는 표시용 파일(목록에서는 숨긴다) */
+    const val MARKER = "_folder.jpg"
 
     private const val STORE = "bookscan"
     private const val KNOWN = "books"
@@ -58,20 +62,22 @@ object Library {
         for (kind in listOf(PhotoStore.RAW, PhotoStore.DONE)) {
             try {
                 val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, "책스캔.txt")
-                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.Images.Media.DISPLAY_NAME, MARKER)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                     put(
-                        MediaStore.MediaColumns.RELATIVE_PATH,
+                        MediaStore.Images.Media.RELATIVE_PATH,
                         PhotoStore.relativePath(book, kind)
                     )
                 }
                 val uri = context.contentResolver.insert(
-                    MediaStore.Files.getContentUri("external"), values
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
                 ) ?: continue
+                // 1×1 짜리 그림 한 장 — 폴더를 만들기 위한 것일 뿐이다
+                val dot = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
                 context.contentResolver.openOutputStream(uri)?.use { out ->
-                    val note = "책스캔 — 「$book」의 $kind 폴더입니다."
-                    out.write((note + System.lineSeparator()).toByteArray())
+                    dot.compress(Bitmap.CompressFormat.JPEG, 50, out)
                 }
+                dot.recycle()
                 made = true
             } catch (e: Exception) {
                 // 이미 있거나 못 만들어도 촬영에는 지장이 없다
@@ -108,11 +114,14 @@ object Library {
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(pathCol) ?: continue
                     val book = bookOf(path) ?: continue
+                    val fileName = cursor.getString(nameCol) ?: ""
                     val kind = kindOf(path)
                     val uri = Uri.withAppendedPath(images, cursor.getLong(idCol).toString())
                     val time = cursor.getLong(timeCol)
                     if (time > (order[book] ?: 0L)) order[book] = time
-                    if (kind == PhotoStore.DONE) {
+                    if (fileName == MARKER) {
+                        counts.putIfAbsent(book, 0)        // 폴더만 있는 새 책
+                    } else if (kind == PhotoStore.DONE) {
                         counts[book] = (counts[book] ?: 0) + 1
                         if (!covers.containsKey(book)) covers[book] = uri
                     } else {
@@ -166,10 +175,12 @@ object Library {
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 while (cursor.moveToNext()) {
+                    val fileName = cursor.getString(nameCol) ?: ""
+                    if (fileName == MARKER) continue     // 폴더 표시용 — 쪽이 아니다
                     found.add(
                         Page(
                             Uri.withAppendedPath(images, cursor.getLong(idCol).toString()),
-                            cursor.getString(nameCol) ?: ""
+                            fileName
                         )
                     )
                 }

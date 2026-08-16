@@ -166,7 +166,8 @@ class LibraryActivity : AppCompatActivity() {
             main.post {
                 Toast.makeText(
                     this,
-                    if (added > 0) "「$book」에 ${added}쪽 저장" else "저장하지 못했습니다",
+                    if (added > 0) "「$book」에 ${added}쪽 저장"
+                    else "저장하지 못했습니다 — ${DocScan.lastError}",
                     Toast.LENGTH_LONG
                 ).show()
                 reload()

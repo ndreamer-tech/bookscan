@@ -57,24 +57,34 @@ object DocScan {
      * 이미 반듯하게 잘린 결과이므로 **처리 폴더에 그대로** 넣고, 나중에 다시 다듬을 수
      * 있도록 원본 폴더에도 같은 그림을 남긴다.
      */
+    /** 마지막으로 저장이 어긋난 까닭 */
+    var lastError: String = ""
+        private set
+
     fun store(activity: Activity, book: String, pages: List<Uri>): Int {
         var added = 0
+        lastError = ""
         val start = Library.pagesIn(activity, book, PhotoStore.RAW).size
         for ((i, source) in pages.withIndex()) {
             val index = start + i + 1
             val bytes = try {
                 activity.contentResolver.openInputStream(source)?.use { it.readBytes() }
             } catch (e: Exception) {
+                lastError = "사진 읽기 — " + (e.message ?: e.javaClass.simpleName)
                 null
             } ?: continue
             var ok = false
             for (kind in listOf(PhotoStore.RAW, PhotoStore.DONE)) {
-                val target = PhotoStore.newUri(activity, book, index, kind) ?: continue
+                val target = PhotoStore.newUri(activity, book, index, kind)
+                if (target == null) {
+                    lastError = "자리 만들기 — " + PhotoStore.lastError
+                    continue
+                }
                 try {
                     activity.contentResolver.openOutputStream(target)?.use { it.write(bytes) }
                     ok = true
                 } catch (e: Exception) {
-                    // 한쪽이 실패해도 나머지는 남긴다
+                    lastError = "쓰기 — " + (e.message ?: e.javaClass.simpleName)
                 }
             }
             if (ok) added++

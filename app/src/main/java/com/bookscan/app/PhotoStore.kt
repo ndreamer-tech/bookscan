@@ -29,6 +29,10 @@ object PhotoStore {
 
     private val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
+    /** 마지막으로 저장이 어긋난 까닭(화면에 보여 주려고 남겨 둔다) */
+    var lastError: String = ""
+        private set
+
     fun relativePath(session: String, kind: String) =
         "${Environment.DIRECTORY_PICTURES}/$ROOT/$session/$kind"
 
@@ -80,6 +84,7 @@ object PhotoStore {
                 Uri.fromFile(File(dir, name))
             }
         } catch (e: Exception) {
+            lastError = e.message ?: e.javaClass.simpleName
             null
         }
     }
@@ -106,11 +111,13 @@ object PhotoStore {
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                     while (cursor.moveToNext()) {
+                        val fileName = cursor.getString(nameCol) ?: ""
+                        if (fileName == Library.MARKER) continue   // 폴더 표시용
                         val uri = Uri.withAppendedPath(
                             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                             cursor.getLong(idCol).toString()
                         )
-                        found.add(cursor.getString(nameCol) to uri)
+                        found.add(fileName to uri)
                     }
                 }
             } catch (e: Exception) {

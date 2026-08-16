@@ -77,6 +77,53 @@ object PageFinisher {
         }
     }
 
+    /**
+     * 세로로 빈 띠를 찾아 **본문이 있는 열만** 남긴다.
+     *
+     * 한 쪽만 찍어도 옆 페이지가 조금 걸쳐 들어오는데, 그대로 두면 그 조각까지
+     * 함께 잘려 나가고 기울기 계산도 흐트러진다.
+     */
+    private fun keepMainColumn(boxes: List<Rect>, width: Int): List<Rect> {
+        if (boxes.size < 4 || width <= 0) return boxes
+        val bins = 200
+        val covered = BooleanArray(bins)
+        for (box in boxes) {
+            val from = (box.x.toDouble() / width * bins).toInt().coerceIn(0, bins - 1)
+            val to = ((box.x + box.width).toDouble() / width * bins).toInt().coerceIn(0, bins - 1)
+            for (i in from..to) covered[i] = true
+        }
+        // 폭의 5% 이상 비어 있으면 다른 열로 본다
+        val gap = (bins * 0.05).toInt().coerceAtLeast(4)
+        val groups = ArrayList<IntArray>()
+        var start = -1
+        var lastSeen = -1
+        for (i in 0 until bins) {
+            if (covered[i]) {
+                if (start < 0) start = i
+                lastSeen = i
+            } else if (start >= 0 && i - lastSeen > gap) {
+                groups.add(intArrayOf(start, lastSeen))
+                start = -1
+            }
+        }
+        if (start >= 0) groups.add(intArrayOf(start, lastSeen))
+        if (groups.size < 2) return boxes
+
+        var best: List<Rect> = boxes
+        var bestScore = -1.0
+        for (group in groups) {
+            val lo = group[0].toDouble() / bins * width
+            val hi = (group[1] + 1).toDouble() / bins * width
+            val inside = boxes.filter { (it.x + it.width / 2.0) in lo..hi }
+            val score = inside.sumOf { it.width.toDouble() }
+            if (score > bestScore) {
+                bestScore = score
+                best = inside
+            }
+        }
+        return if (best.size >= 4) best else boxes
+    }
+
     /** 글자줄들이 이루는 사각 범위와 기울기. */
     private fun textBlock(rgba: Mat): Block? {
         val gray = Mat()
@@ -104,27 +151,34 @@ object PageFinisher {
                 merged, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE
             )
 
+            // 줄 하나하나를 모은다(옆 페이지 조각이 섞여 있을 수 있다) — (사각형, 기울기)
+            val found = ArrayList<Pair<Rect, Double?>>()
+            for (contour in contours) {
+                val box = Imgproc.boundingRect(contour)
+                if (box.width < w * 0.12 || box.height < 3 || box.height > h * 0.2) continue
+                val rotated = Imgproc.minAreaRect(
+                    org.opencv.core.MatOfPoint2f(*contour.toArray())
+                )
+                var angle = rotated.angle
+                if (rotated.size.width < rotated.size.height) angle += 90.0
+                found.add(box to (if (abs(angle) < 12) angle else null))
+            }
+            val kept = keepMainColumn(found.map { it.first }, w).toHashSet()
+            val lines = found.filter { kept.contains(it.first) }
+
             var left = Int.MAX_VALUE
             var top = Int.MAX_VALUE
             var right = 0
             var bottom = 0
-            var lines = 0
             val angles = ArrayList<Double>()
-            for (contour in contours) {
-                val box = Imgproc.boundingRect(contour)
-                if (box.width < w * 0.12 || box.height < 3 || box.height > h * 0.2) continue
-                lines++
+            for ((box, angle) in lines) {
                 left = minOf(left, box.x)
                 top = minOf(top, box.y)
                 right = max(right, box.x + box.width)
                 bottom = max(bottom, box.y + box.height)
-
-                val rotated = Imgproc.minAreaRect(org.opencv.core.MatOfPoint2f(*contour.toArray()))
-                var angle = rotated.angle
-                if (rotated.size.width < rotated.size.height) angle += 90.0
-                if (abs(angle) < 12) angles.add(angle)
+                angle?.let { angles.add(it) }
             }
-            if (lines < 4) return null
+            if (lines.size < 4) return null
 
             angles.sort()
             val skew = if (angles.isEmpty()) 0.0 else angles[angles.size / 2]

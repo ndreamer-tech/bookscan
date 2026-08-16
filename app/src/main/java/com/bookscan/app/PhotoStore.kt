@@ -46,6 +46,30 @@ object PhotoStore {
         return ImageCapture.OutputFileOptions.Builder(File(dir, name)).build()
     }
 
+    /** 펼친 책을 둘로 나눌 때, 오른쪽 쪽을 담을 새 파일 자리를 만든다. */
+    fun newImageUri(context: Context, session: String, index: Int): Uri? {
+        val name = String.format("%03d.jpg", index)
+        return try {
+            if (modern) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, relativePath(session))
+                }
+                context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            } else {
+                val dir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "$ROOT/$session"
+                )
+                dir.mkdirs()
+                Uri.fromFile(File(dir, name))
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** 이 묶음에 저장된 사진을 이름 순서대로 돌려준다(앱을 껐다 켜도 찾을 수 있게 폴더에서 읽는다). */
     fun photosOf(context: Context, session: String): List<() -> InputStream?> {
         if (modern) {

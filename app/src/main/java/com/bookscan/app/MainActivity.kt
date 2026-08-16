@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var lastShotSignature: IntArray? = null
     private var pendingSignature: IntArray? = null
     private var lastUri: Uri? = null
+    private var pageMode = Cropper.PageMode.AUTO
     private var goodSince = 0L
     private var lastShotAt = 0L
     private var lastFocusAt = 0L
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity() {
         ui.makePdf.setOnClickListener { makePdf() }
         ui.thumb.setOnClickListener { showLastPhoto() }
         ui.openFolder.setOnClickListener { openFolder() }
+        ui.pageMode.setOnClickListener { cyclePageMode() }
         ui.preview.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) focusAt(event.x, event.y)
             true
@@ -115,6 +117,27 @@ class MainActivity : AppCompatActivity() {
     private fun updateCount() {
         ui.count.text = "$sessionName · ${shotCount}장"
         ui.makePdf.isEnabled = shotCount > 0
+    }
+
+    /** 쪽 모드: 자동 → 한 쪽 → 두 쪽 → 자동 … */
+    private fun cyclePageMode() {
+        pageMode = when (pageMode) {
+            Cropper.PageMode.AUTO -> Cropper.PageMode.SINGLE
+            Cropper.PageMode.SINGLE -> Cropper.PageMode.SPREAD
+            Cropper.PageMode.SPREAD -> Cropper.PageMode.AUTO
+        }
+        ui.pageMode.setText(
+            when (pageMode) {
+                Cropper.PageMode.AUTO -> R.string.mode_auto
+                Cropper.PageMode.SINGLE -> R.string.mode_single
+                Cropper.PageMode.SPREAD -> R.string.mode_spread
+            }
+        )
+        ui.status.text = when (pageMode) {
+            Cropper.PageMode.AUTO -> "가로로 넓으면 두 쪽으로 나눠 저장합니다"
+            Cropper.PageMode.SINGLE -> "한 쪽씩 찍습니다 — 나누지 않습니다"
+            Cropper.PageMode.SPREAD -> "펼친 책을 책등에서 좌·우로 나눕니다"
+        }
     }
 
     // ── 카메라 ────────────────────────────────────────────────────
@@ -291,8 +314,11 @@ class MainActivity : AppCompatActivity() {
         ui.status.text = "${shotCount}장째 저장 — 윤곽대로 다듬는 중…"
 
         Thread {
-            // 사진 자체에서 페이지 윤곽을 다시 찾아 그 안만 남긴다
-            val cropped = uri != null && Cropper.autoCrop(this, uri)
+            // 사진 자체에서 페이지 윤곽을 다시 찾아 그 안만 남기고, 펼친 책이면 둘로 나눈다
+            val result = if (uri != null) {
+                Cropper.autoCrop(this, uri, sessionName, shotCount + 1, pageMode)
+            } else Cropper.Result(false, false)
+            if (result.split) shotCount++
             val thumb = uri?.let { loadThumb(it) }
             runOnUiThread {
                 if (thumb != null) {
@@ -301,10 +327,11 @@ class MainActivity : AppCompatActivity() {
                     ui.thumbBadge.text = shotCount.toString()
                     ui.thumbBadge.visibility = View.VISIBLE
                 }
-                ui.status.text = if (cropped) {
-                    "${shotCount}장째 — 윤곽대로 잘라 저장 · 다음 쪽으로"
-                } else {
-                    "${shotCount}장째 — 윤곽을 못 찾아 통째로 저장(배경 포함)"
+                updateCount()
+                ui.status.text = when {
+                    result.split -> "두 쪽으로 나눠 저장 (${shotCount - 1}·${shotCount}쪽) · 다음 장으로"
+                    result.cropped -> "${shotCount}장째 — 윤곽대로 잘라 저장 · 다음 쪽으로"
+                    else -> "${shotCount}장째 — 윤곽을 못 찾아 통째로 저장(배경 포함)"
                 }
             }
         }.start()

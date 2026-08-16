@@ -6,6 +6,9 @@
     <string name="shoot">촬영</string>
     <string name="new_session">새 묶음</string>
     <string name="make_pdf">PDF</string>
+    <string name="mode_auto">쪽: 자동</string>
+    <string name="mode_single">쪽: 한 쪽</string>
+    <string name="mode_spread">쪽: 두 쪽</string>
     <string name="open_folder">📁 폴더</string>
     <string name="last_shot">방금 찍은 사진</string>
 </resources>

@@ -6,9 +6,11 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Rect
+import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
@@ -256,7 +258,7 @@ object PageDetector {
                     // 외곽선이 사각형에 얼마나 들어맞는가(찌그러진 그림자 등을 걸러낸다)
                     val fitness = area / max(quadArea, 1.0)
                     if (fitness < 0.72) continue
-                    into.add(quadArea * fitness to corners)
+                    into.add(quadArea * fitness * rectScore(corners) to corners)
                 } finally {
                     curve.release(); approx.release()
                 }
@@ -267,7 +269,43 @@ object PageDetector {
         }
     }
 
-    /** 이미 흑백으로 만든 그림에서 바로 네 귀퉁이를 찾는다(찍은 사진 다듬기에 쓴다). */
+    /** 색 있는 사진에서 네 귀퉁이를 찾는다(찍은 사진 다듬기에 쓴다 — 가장 정확). */
+    fun detectQuadInColor(rgba: Mat): FloatArray? {
+        val width = rgba.cols()
+        if (width < 200 || rgba.rows() < 200) return null
+        val scale = (WORK_WIDTH / width).coerceAtMost(1.0)
+        val colorSmall = Mat()
+        val graySmall = Mat()
+        try {
+            Imgproc.resize(rgba, colorSmall, Size(), scale, scale, Imgproc.INTER_AREA)
+            Imgproc.cvtColor(colorSmall, graySmall, Imgproc.COLOR_RGBA2GRAY)
+
+            val found = ArrayList<Pair<Double, Array<Point>>>()
+            val frame = (colorSmall.cols() * colorSmall.rows()).toDouble()
+            val colorMask = centerColorMask(colorSmall)
+            try {
+                collectQuads(colorMask, frame, found)
+            } finally {
+                colorMask.release()
+            }
+            val quad = (found.maxByOrNull { it.first }?.second?.let { orderCorners(it) })
+                ?: findQuad(graySmall)
+                ?: return null
+
+            val out = FloatArray(8)
+            for (i in 0 until 4) {
+                out[i * 2] = (quad[i].x / scale).toFloat()
+                out[i * 2 + 1] = (quad[i].y / scale).toFloat()
+            }
+            return out
+        } catch (e: Throwable) {
+            return null
+        } finally {
+            colorSmall.release(); graySmall.release()
+        }
+    }
+
+    /** 이미 흑백으로 만든 그림에서 바로 네 귀퉁이를 찾는다. */
     fun detectQuadIn(gray: Mat): FloatArray? {
         val width = gray.cols()
         if (width < 200 || gray.rows() < 200) return null
@@ -286,6 +324,99 @@ object PageDetector {
             return null
         } finally {
             small.release()
+        }
+    }
+
+    /** 마주 보는 변 길이가 비슷할수록 1에 가깝다(배경까지 물린 사다리꼴을 걸러낸다). */
+    private fun rectScore(corners: Array<Point>): Double {
+        val o = orderCorners(corners)
+        fun d(a: Point, b: Point) = hypot(a.x - b.x, a.y - b.y)
+        val top = d(o[0], o[1])
+        val bottom = d(o[3], o[2])
+        val left = d(o[0], o[3])
+        val right = d(o[1], o[2])
+        val h = min(top, bottom) / max(max(top, bottom), 1e-6)
+        val v = min(left, right) / max(max(left, right), 1e-6)
+        return Math.pow(h * v, 1.5)
+    }
+
+    /**
+     * 화면 **가운데 색과 비슷한 덩어리**를 책으로 본다.
+     *
+     * 책을 겨냥해 찍으므로 가운데는 늘 책이다. 표지가 청록색이든 흰 종이든 상관없이
+     * 잡히고, 배경(책상·선반)이 책과 붙어 한 덩어리가 되는 문제도 막아 준다.
+     */
+    private fun centerColorMask(colorSmall: Mat): Mat {
+        val lab = Mat()
+        val mask = Mat()
+        try {
+            val rgb = Mat()
+            Imgproc.cvtColor(colorSmall, rgb, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
+            rgb.release()
+
+            val w = lab.cols()
+            val h = lab.rows()
+            val patch = Mat(lab, Rect((w * 0.38).toInt(), (h * 0.38).toInt(), (w * 0.24).toInt(), (h * 0.24).toInt()))
+            val mean = Core.mean(patch)
+            patch.release()
+
+            val tol = doubleArrayOf(30.0, 16.0, 16.0)
+            val lo = Scalar(
+                max(0.0, mean.`val`[0] - tol[0]),
+                max(0.0, mean.`val`[1] - tol[1]),
+                max(0.0, mean.`val`[2] - tol[2])
+            )
+            val hi = Scalar(
+                min(255.0, mean.`val`[0] + tol[0]),
+                min(255.0, mean.`val`[1] + tol[1]),
+                min(255.0, mean.`val`[2] + tol[2])
+            )
+            Core.inRange(lab, lo, hi, mask)
+
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(11.0, 11.0))
+            Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernel, Point(-1.0, -1.0), 3)
+            Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernel)
+            kernel.release()
+
+            // 가운데를 품은 덩어리만 남기고, 글자 구멍은 볼록껍질로 메운다
+            val labels = Mat()
+            val stats = Mat()
+            val centroids = Mat()
+            val count = Imgproc.connectedComponentsWithStats(mask, labels, stats, centroids)
+            var keep = labels.get(h / 2, w / 2)?.firstOrNull()?.toInt() ?: 0
+            if (keep == 0 && count > 1) {
+                var bestArea = 0.0
+                for (i in 1 until count) {
+                    val a = stats.get(i, Imgproc.CC_STAT_AREA)?.firstOrNull() ?: 0.0
+                    if (a > bestArea) { bestArea = a; keep = i }
+                }
+            }
+            if (keep > 0) {
+                Core.compare(labels, Scalar(keep.toDouble()), mask, Core.CMP_EQ)
+            }
+            labels.release(); stats.release(); centroids.release()
+
+            val contours = ArrayList<MatOfPoint>()
+            val hierarchy = Mat()
+            Imgproc.findContours(mask.clone(), contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            hierarchy.release()
+            val biggest = contours.maxByOrNull { Imgproc.contourArea(it) }
+            if (biggest != null) {
+                val hull = MatOfInt()
+                Imgproc.convexHull(biggest, hull)
+                val pts = biggest.toArray()
+                val hullPoints = hull.toArray().map { pts[it] }.toTypedArray()
+                mask.setTo(Scalar(0.0))
+                Imgproc.fillConvexPoly(mask, MatOfPoint(*hullPoints), Scalar(255.0))
+                hull.release()
+            }
+            contours.forEach { it.release() }
+            return mask
+        } catch (e: Throwable) {
+            return mask
+        } finally {
+            lab.release()
         }
     }
 

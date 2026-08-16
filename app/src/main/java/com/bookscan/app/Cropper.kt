@@ -9,7 +9,10 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.Rect
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
@@ -31,16 +34,26 @@ object Cropper {
      * 미리보기에서 찾은 윤곽을 쓰지 않고 사진 자체를 다시 보는 이유:
      * 사진이 훨씬 또렷하고, 수동으로 찍었을 때도 똑같이 잘리기 때문이다.
      */
-    fun autoCrop(context: Context, uri: Uri): Boolean {
-        val bitmap = decodeUpright(context, uri) ?: return false
+    /** 쪽 나누기 방식 */
+    enum class PageMode { AUTO, SINGLE, SPREAD }
+
+    /** (잘랐는가, 두 쪽으로 나눴는가) */
+    class Result(val cropped: Boolean, val split: Boolean)
+
+    fun autoCrop(
+        context: Context,
+        uri: Uri,
+        session: String,
+        nextIndex: Int,
+        mode: PageMode,
+    ): Result {
+        val bitmap = decodeUpright(context, uri) ?: return Result(false, false)
         val mat = Mat()
-        val gray = Mat()
         val warped = Mat()
         try {
             Utils.bitmapToMat(bitmap, mat)
-            if (mat.empty()) return false
-            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-            val quad = PageDetector.detectQuadIn(gray) ?: return false
+            if (mat.empty()) return Result(false, false)
+            val quad = PageDetector.detectQuadInColor(mat) ?: return Result(false, false)
             val points = Array(4) { i -> Point(quad[i * 2].toDouble(), quad[i * 2 + 1].toDouble()) }
 
             val cx = points.sumOf { it.x } / 4
@@ -53,7 +66,7 @@ object Cropper {
             val (tl, tr, br, bl) = points
             val width = max(dist(tl, tr), dist(bl, br)).toInt()
             val height = max(dist(tl, bl), dist(tr, br)).toInt()
-            if (width < 200 || height < 200) return false
+            if (width < 200 || height < 200) return Result(false, false)
 
             val from = MatOfPoint2f(tl, tr, br, bl)
             val to = MatOfPoint2f(
@@ -66,15 +79,87 @@ object Cropper {
             Imgproc.warpPerspective(mat, warped, transform, Size(width.toDouble(), height.toDouble()), Imgproc.INTER_CUBIC)
             from.release(); to.release(); transform.release()
 
-            val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            Utils.matToBitmap(warped, out)
-            val saved = write(context, uri, out)
-            out.recycle()
-            return saved
+            // 펼친 책이면 책등에서 좌·우 쪽으로 나눈다
+            val spread = when (mode) {
+                PageMode.SINGLE -> false
+                PageMode.SPREAD -> true
+                PageMode.AUTO -> width > height * 1.05
+            }
+            val cut = if (spread) findGutter(warped) else -1
+
+            if (cut > 0) {
+                val leftMat = Mat(warped, Rect(0, 0, cut, warped.rows()))
+                val rightMat = Mat(warped, Rect(cut, 0, warped.cols() - cut, warped.rows()))
+                try {
+                    val savedLeft = writeMat(context, uri, leftMat)
+                    val rightUri = PhotoStore.newImageUri(context, session, nextIndex)
+                    val savedRight = rightUri != null && writeMat(context, rightUri, rightMat)
+                    return Result(savedLeft, savedLeft && savedRight)
+                } finally {
+                    leftMat.release(); rightMat.release()
+                }
+            }
+            return Result(writeMat(context, uri, warped), false)
         } catch (e: Throwable) {
-            return false
+            return Result(false, false)
         } finally {
-            mat.release(); gray.release(); warped.release(); bitmap.recycle()
+            mat.release(); warped.release(); bitmap.recycle()
+        }
+    }
+
+    /**
+     * 책등(가름선) 자리를 찾는다. 펼친 책은 가운데가 그늘져 어둡다.
+     * 뚜렷하지 않으면 한가운데로 자른다.
+     */
+    private fun findGutter(page: Mat): Int {
+        val gray = Mat()
+        try {
+            Imgproc.cvtColor(page, gray, Imgproc.COLOR_RGBA2GRAY)
+            val h = gray.rows()
+            val w = gray.cols()
+            val band = Mat(gray, Rect(0, (h * 0.15).toInt(), w, (h * 0.7).toInt()))
+            val columns = Mat()
+            Core.reduce(band, columns, 0, Core.REDUCE_AVG, CvType.CV_32F)
+            band.release()
+
+            val values = FloatArray(w)
+            columns.get(0, 0, values)
+            columns.release()
+
+            val lo = (w * 0.35).toInt()
+            val hi = (w * 0.65).toInt()
+            var bestX = w / 2
+            var bestValue = Float.MAX_VALUE
+            for (x in lo until hi) {
+                // 좁은 홈을 놓치지 않게 이웃 몇 열의 평균으로 본다
+                var sum = 0f
+                var n = 0
+                for (k in -4..4) {
+                    val i = x + k
+                    if (i in 0 until w) { sum += values[i]; n++ }
+                }
+                val v = sum / n
+                if (v < bestValue) { bestValue = v; bestX = x }
+            }
+            val middle = values.average().toFloat()
+            // 그늘이 뚜렷하지 않으면(평균의 93% 미만이 아니면) 한가운데로
+            return if (bestValue < middle * 0.93f) bestX else w / 2
+        } catch (e: Throwable) {
+            return page.cols() / 2
+        } finally {
+            gray.release()
+        }
+    }
+
+    private fun writeMat(context: Context, uri: Uri, mat: Mat): Boolean {
+        val bitmap = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888)
+        return try {
+            Utils.matToBitmap(mat, bitmap)
+            write(context, uri, bitmap)
+        } catch (e: Throwable) {
+            false
+        } finally {
+            bitmap.recycle()
         }
     }
 

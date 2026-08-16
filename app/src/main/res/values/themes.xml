@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 대화상자 — 단추가 바탕에 묻혀 안 보이던 것을 막는다 -->
+    <style name="BookDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">#5AA9FF</item>
+        <item name="colorAccent">#5AA9FF</item>
+        <item name="android:textColor">#F2F5FA</item>
+        <item name="android:textColorPrimary">#F2F5FA</item>
+        <item name="android:textColorSecondary">#C9D1DC</item>
+        <item name="buttonBarPositiveButtonStyle">@style/BookDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/BookDialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/BookDialogButton</item>
+    </style>
+
+    <style name="BookDialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">#5AA9FF</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <style name="Theme.BookScan" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="alertDialogTheme">@style/BookDialog</item>
+        <item name="materialAlertDialogTheme">@style/BookDialog</item>
         <item name="colorPrimary">#2E4057</item>
         <item name="colorPrimaryVariant">#1F2C3D</item>
         <item name="colorSecondary">#2ECC71</item>

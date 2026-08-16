@@ -24,6 +24,33 @@ object Library {
 
     private val images = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
 
+    private const val STORE = "bookscan"
+    private const val KNOWN = "books"
+
+    /**
+     * 새로 만든 책 이름을 적어 둔다.
+     *
+     * MediaStore에는 **빈 폴더를 만들 수 없어서**, 첫 사진을 찍기 전에는 폴더가
+     * 생기지 않는다. 그래도 서재에는 바로 보여야 하므로 이름만 따로 적어 둔다.
+     */
+    fun remember(context: Context, book: String) {
+        val store = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        val known = LinkedHashSet(store.getStringSet(KNOWN, emptySet()).orEmpty())
+        known.add(book)
+        store.edit().putStringSet(KNOWN, known).apply()
+    }
+
+    fun forget(context: Context, book: String) {
+        val store = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+        val known = LinkedHashSet(store.getStringSet(KNOWN, emptySet()).orEmpty())
+        known.remove(book)
+        store.edit().putStringSet(KNOWN, known).apply()
+    }
+
+    private fun knownBooks(context: Context): Set<String> =
+        context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+            .getStringSet(KNOWN, emptySet()).orEmpty()
+
     /** 서재에 꽂힌 책들(최근에 찍은 것부터). */
     fun books(context: Context): List<Book> {
         val counts = LinkedHashMap<String, Int>()
@@ -64,8 +91,11 @@ object Library {
         } catch (e: Exception) {
             return emptyList()
         }
-        return counts.keys
-            .sortedByDescending { order[it] ?: 0L }
+        // 사진이 아직 없는 새 책도 서재에 보여 준다
+        val names = LinkedHashSet(counts.keys)
+        names.addAll(knownBooks(context))
+        return names
+            .sortedByDescending { order[it] ?: Long.MAX_VALUE }
             .map { Book(it, pages(context, it).size, covers[it]) }
     }
 
@@ -185,6 +215,7 @@ object Library {
 
     /** 책 한 권을 통째로 지운다. */
     fun removeBook(context: Context, book: String): Boolean {
+        forget(context, book)
         return try {
             for (kind in listOf(PhotoStore.DONE, PhotoStore.RAW)) {
                 for (page in pagesIn(context, book, kind)) {
@@ -218,7 +249,7 @@ object Library {
 
     /** 새 책 이름 — 같은 이름이 있으면 뒤에 번호를 붙인다. */
     fun freshName(context: Context, wanted: String): String {
-        val taken = books(context).map { it.name }.toSet()
+        val taken = books(context).map { it.name }.toSet() + knownBooks(context)
         if (wanted !in taken) return wanted
         var i = 2
         while ("$wanted $i" in taken) i++

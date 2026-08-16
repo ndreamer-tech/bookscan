@@ -48,15 +48,39 @@ class LibraryActivity : AppCompatActivity() {
         ui.bookGrid.adapter = BookAdapter()
         ui.newBook.setOnClickListener { askNewBook() }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 11)
-        }
+        askPermissions()
     }
 
     override fun onResume() {
         super.onResume()
+        reload()
+    }
+
+    /** 카메라와 **사진 읽기** 권한 — 서재가 이미 찍어 둔 책을 보려면 읽기가 필요하다. */
+    private fun askPermissions() {
+        val wanted = ArrayList<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            wanted.add(Manifest.permission.CAMERA)
+        }
+        val readPhotos =
+            if (android.os.Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
+            else Manifest.permission.READ_EXTERNAL_STORAGE
+        if (ContextCompat.checkSelfPermission(this, readPhotos)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            wanted.add(readPhotos)
+        }
+        if (wanted.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, wanted.toTypedArray(), 11)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, results: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, results)
         reload()
     }
 
@@ -93,6 +117,7 @@ class LibraryActivity : AppCompatActivity() {
                 }
                 workers.execute {
                     val name = Library.freshName(this, wanted)
+                    Library.remember(this, name)      // 사진이 없어도 서재에 남는다
                     main.post { openCamera(name) }
                 }
             }

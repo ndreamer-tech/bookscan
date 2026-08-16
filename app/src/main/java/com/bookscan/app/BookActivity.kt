@@ -162,10 +162,10 @@ class BookActivity : AppCompatActivity() {
     private fun askHowToShoot() {
         AlertDialog.Builder(this)
             .setTitle("어떻게 찍을까요")
-            .setItems(arrayOf("연속 촬영 (한 번에 쭉)", "정밀 촬영 (한 장씩 확인)")) { _, which ->
-                if (which == 0) startActivity(
+            .setItems(arrayOf("정밀 촬영 (구글 · ⊕로 계속)", "연속 촬영 (우리 화면)")) { _, which ->
+                if (which == 0) startPrecision() else startActivity(
                     Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
-                ) else startPrecision()
+                )
             }
             .show()
     }

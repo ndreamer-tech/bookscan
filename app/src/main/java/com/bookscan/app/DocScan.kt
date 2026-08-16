@@ -29,7 +29,9 @@ object DocScan {
             .setGalleryImportAllowed(true)          // 갤러리에서 가져오기도 허용
             .setPageLimit(100)
             .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            // 가장 단순한 화면 — 확인 화면에 「자르기 및 회전」만 남는다.
+            // 필터·지우기 줄이 사라져 ⊕(다음 장)까지 손이 바로 간다.
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE)
             .build()
         try {
             GmsDocumentScanning.getClient(options)

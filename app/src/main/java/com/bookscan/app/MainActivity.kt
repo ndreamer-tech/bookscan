@@ -45,7 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
 
-    private lateinit var sessionDir: File
+    private var sessionName = ""
     private var shotCount = 0
 
     private var goodSince = 0L
@@ -93,15 +93,14 @@ class MainActivity : AppCompatActivity() {
     // ── 촬영 묶음(세션) ───────────────────────────────────────────
 
     private fun newSession() {
-        val stamp = SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date())
-        sessionDir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), stamp)
-        sessionDir.mkdirs()
+        sessionName = SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date())
         shotCount = 0
         updateCount()
+        ui.status.text = "새 묶음 — ${PhotoStore.folderHint(sessionName)}"
     }
 
     private fun updateCount() {
-        ui.count.text = "${sessionDir.name} · ${shotCount}장"
+        ui.count.text = "$sessionName · ${shotCount}장"
         ui.makePdf.isEnabled = shotCount > 0
     }
 
@@ -222,8 +221,13 @@ class MainActivity : AppCompatActivity() {
         val capture = imageCapture ?: return
         if (capturing) return
         capturing = true
-        val file = File(sessionDir, String.format(Locale.KOREA, "%03d.jpg", shotCount + 1))
-        val options = ImageCapture.OutputFileOptions.Builder(file).build()
+        val options = try {
+            PhotoStore.outputOptions(this, sessionName, shotCount + 1)
+        } catch (e: Exception) {
+            capturing = false
+            Toast.makeText(this, "저장 위치를 준비하지 못했습니다: ${e.message}", Toast.LENGTH_LONG).show()
+            return
+        }
         capture.takePicture(
             options, ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
@@ -232,40 +236,48 @@ class MainActivity : AppCompatActivity() {
                     lastShotAt = System.currentTimeMillis()
                     goodSince = 0L
                     shotCount++
-                    updateCount()
-                    buzz()
-                    ui.status.text = "${shotCount}장째 저장했습니다 — 다음 쪽으로 넘기세요"
+                    // 저장 뒤 처리에서 나는 오류로 앱이 꺼지지 않게 감싼다
+                    try {
+                        updateCount()
+                        buzz()
+                        ui.status.text = "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+                    } catch (e: Throwable) {
+                        ui.status.text = "${shotCount}장째 저장"
+                    }
                 }
 
                 override fun onError(e: ImageCaptureException) {
                     capturing = false
-                    Toast.makeText(this@MainActivity, "저장 실패: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "저장 실패: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         )
     }
 
     private fun buzz() {
-        val effect = VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = getSystemService(VibratorManager::class.java)
-            manager?.defaultVibrator?.vibrate(effect)
-        } else {
-            @Suppress("DEPRECATION")
-            (getSystemService(VIBRATOR_SERVICE) as? Vibrator)?.vibrate(effect)
+        try {
+            val effect = VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java)?.defaultVibrator?.vibrate(effect)
+            } else {
+                @Suppress("DEPRECATION")
+                (getSystemService(VIBRATOR_SERVICE) as? Vibrator)?.vibrate(effect)
+            }
+        } catch (e: Throwable) {
+            // 진동이 안 되는 폰이어도 촬영은 계속된다
         }
     }
 
     // ── PDF로 묶기 ────────────────────────────────────────────────
 
     private fun makePdf() {
-        val photos = sessionDir.listFiles { f -> f.name.endsWith(".jpg") }?.toList().orEmpty()
+        val photos = PhotoStore.photosOf(this, sessionName)
         if (photos.isEmpty()) {
             Toast.makeText(this, "찍은 사진이 없습니다.", Toast.LENGTH_SHORT).show()
             return
         }
         ui.status.text = "PDF 만드는 중… (${photos.size}장)"
-        val name = "책스캔_${sessionDir.name}.pdf"
+        val name = "책스캔_$sessionName.pdf"
         val target = File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), name)
 
         Thread {

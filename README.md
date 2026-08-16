@@ -28,8 +28,8 @@
 
 ## 저장 위치
 
-- 사진: `Android/data/com.bookscan.app/files/Pictures/<날짜_시간>/001.jpg …`
-  (USB로 PC에 연결하면 그대로 꺼내갈 수 있다)
+- 사진: **내장메모리 / Pictures / 책스캔 / <날짜_시간> / 001.jpg …**
+  갤러리 앱에 「책스캔」 앨범으로 바로 보이고, USB로 PC에 연결하면 같은 경로에서 꺼낼 수 있다.
 - PDF: `Download/책스캔/책스캔_<날짜_시간>.pdf`
 
 ## PC로 가져간 뒤

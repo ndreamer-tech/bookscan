@@ -11,57 +11,71 @@ import java.io.File
 import java.io.InputStream
 
 /**
- * 찍은 사진을 폰의 **책스캔 폴더**에 저장한다.
+ * 사진을 폰의 **책스캔 폴더**에 저장한다.
  *
- * - Android 10 이상: 갤러리(MediaStore)의 `Pictures/책스캔/<묶음>` — 갤러리에 바로 보이고
- *   USB로 PC에 연결하면 `내장메모리/Pictures/책스캔/` 에서 그대로 꺼낼 수 있다.
- * - Android 9 이하: 같은 경로에 파일로 저장.
+ * ```
+ * 내장메모리/Pictures/책스캔/<묶음>/원본/001.jpg   ← 찍은 그대로
+ * 내장메모리/Pictures/책스캔/<묶음>/처리/001.jpg   ← 잘라 다듬은 결과(PDF는 이걸로 만든다)
+ * ```
+ *
+ * 찍은 파일에 덮어쓰지 않고 **새 파일로 저장**한다. 덮어쓰기가 막히는 폰이 있어
+ * 다듬은 결과가 사라지는 일을 막기 위해서다.
  */
 object PhotoStore {
 
     const val ROOT = "책스캔"
+    const val RAW = "원본"
+    const val DONE = "처리"
 
     private val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
-    fun relativePath(session: String) = "${Environment.DIRECTORY_PICTURES}/$ROOT/$session"
+    fun relativePath(session: String, kind: String) =
+        "${Environment.DIRECTORY_PICTURES}/$ROOT/$session/$kind"
 
-    /** 사진 저장 위치를 카메라에 알려 준다. */
-    fun outputOptions(context: Context, session: String, index: Int): ImageCapture.OutputFileOptions {
+    private fun legacyDir(session: String, kind: String) = File(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+        "$ROOT/$session/$kind"
+    )
+
+    /** 찍은 사진이 저장될 자리(원본 폴더). */
+    fun outputOptions(
+        context: Context, session: String, index: Int
+    ): ImageCapture.OutputFileOptions {
         val name = String.format("%03d.jpg", index)
         if (modern) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                put(MediaStore.Images.Media.RELATIVE_PATH, relativePath(session))
+                put(MediaStore.Images.Media.RELATIVE_PATH, relativePath(session, RAW))
             }
             return ImageCapture.OutputFileOptions
-                .Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                .Builder(
+                    context.contentResolver,
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    values
+                )
                 .build()
         }
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-            "$ROOT/$session"
-        )
+        val dir = legacyDir(session, RAW)
         dir.mkdirs()
         return ImageCapture.OutputFileOptions.Builder(File(dir, name)).build()
     }
 
-    /** 펼친 책을 둘로 나눌 때, 오른쪽 쪽을 담을 새 파일 자리를 만든다. */
-    fun newImageUri(context: Context, session: String, index: Int): Uri? {
+    /** 다듬은 사진을 담을 새 자리(처리 폴더). */
+    fun newUri(context: Context, session: String, index: Int, kind: String = DONE): Uri? {
         val name = String.format("%03d.jpg", index)
         return try {
             if (modern) {
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, name)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, relativePath(session))
+                    put(MediaStore.Images.Media.RELATIVE_PATH, relativePath(session, kind))
                 }
-                context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            } else {
-                val dir = File(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                    "$ROOT/$session"
+                context.contentResolver.insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
                 )
+            } else {
+                val dir = legacyDir(session, kind)
                 dir.mkdirs()
                 Uri.fromFile(File(dir, name))
             }
@@ -70,65 +84,46 @@ object PhotoStore {
         }
     }
 
-    /** 이 묶음에 저장된 사진을 이름 순서대로 돌려준다(앱을 껐다 켜도 찾을 수 있게 폴더에서 읽는다). */
+    /** PDF·목록용 — 처리 폴더를 먼저 보고, 비어 있으면 원본 폴더를 쓴다. */
     fun photosOf(context: Context, session: String): List<() -> InputStream?> {
+        val done = photosIn(context, session, DONE)
+        return if (done.isNotEmpty()) done else photosIn(context, session, RAW)
+    }
+
+    fun photosIn(context: Context, session: String, kind: String): List<() -> InputStream?> {
         if (modern) {
-            val uris = mutableListOf<Pair<String, Uri>>()
-            val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
+            val found = mutableListOf<Pair<String, Uri>>()
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME
+            )
             val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-            val args = arrayOf("%$ROOT/$session%")
-            context.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, selection, args,
-                "${MediaStore.Images.Media.DISPLAY_NAME} ASC"
-            )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idCol)
-                    val uri = Uri.withAppendedPath(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString()
-                    )
-                    uris.add(cursor.getString(nameCol) to uri)
+            val args = arrayOf("%$ROOT/$session/$kind%")
+            try {
+                context.contentResolver.query(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, selection, args,
+                    "${MediaStore.Images.Media.DISPLAY_NAME} ASC"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                    while (cursor.moveToNext()) {
+                        val uri = Uri.withAppendedPath(
+                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            cursor.getLong(idCol).toString()
+                        )
+                        found.add(cursor.getString(nameCol) to uri)
+                    }
                 }
+            } catch (e: Exception) {
+                return emptyList()
             }
-            return uris.sortedBy { it.first }.map { (_, uri) ->
+            return found.sortedBy { it.first }.map { (_, uri) ->
                 { context.contentResolver.openInputStream(uri) }
             }
         }
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-            "$ROOT/$session"
-        )
-        val files = dir.listFiles { f -> f.name.endsWith(".jpg") }?.sortedBy { it.name }.orEmpty()
+        val files = legacyDir(session, kind)
+            .listFiles { f -> f.name.endsWith(".jpg") }?.sortedBy { it.name }.orEmpty()
         return files.map { file -> { file.inputStream() as InputStream? } }
     }
 
-    fun count(context: Context, session: String): Int = photosOf(context, session).size
-
-    /**
-     * 다듬지 못한 사진은 이름 끝에 `_미처리`를 붙여 한눈에 구분되게 한다.
-     * (같은 파일을 그 자리에서 덮어쓰므로 원본용·보정용 폴더가 따로 있는 것이 아니다.)
-     */
-    fun markUnprocessed(context: Context, uri: Uri, session: String, index: Int) {
-        try {
-            val name = String.format("%03d_미처리.jpg", index)
-            if (modern) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                }
-                context.contentResolver.update(uri, values, null, null)
-            } else {
-                val dir = File(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                    "$ROOT/$session"
-                )
-                File(dir, String.format("%03d.jpg", index)).renameTo(File(dir, name))
-            }
-        } catch (e: Exception) {
-            // 이름을 못 바꿔도 사진은 그대로 있다
-        }
-    }
-
-    /** 사람이 읽을 수 있는 저장 위치 안내. */
-    fun folderHint(session: String) = "내장메모리 / Pictures / $ROOT / $session"
+    fun folderHint(session: String) = "Pictures / $ROOT / $session"
 }

@@ -42,25 +42,38 @@ object Cropper {
 
     fun autoCrop(
         context: Context,
-        uri: Uri,
+        source: Uri,
+        target: Uri?,
         session: String,
         nextIndex: Int,
         mode: PageMode,
+        log: StringBuilder,
     ): Result {
-        val bitmap = decodeUpright(context, uri) ?: return Result(false, false, "읽기실패")
+        if (target == null) {
+            log.append(" 저장자리없음")
+            return Result(false, false, "자리없음")
+        }
+        val uri = target
+        val bitmap = decodeUpright(context, source) ?: run {
+            log.append(" 사진읽기실패")
+            return Result(false, false, "읽기실패")
+        }
         val mat = Mat()
         val warped = Mat()
         try {
             Utils.bitmapToMat(bitmap, mat)
             if (mat.empty()) return Result(false, false, "빈사진")
+            log.append(" 사진 ").append(mat.cols()).append("x").append(mat.rows())
             val rough = PageDetector.detectQuadInColor(mat)
+            log.append(if (rough != null) " 테두리O" else " 테두리X")
             if (rough == null) {
                 // ① 테두리를 못 찾음 → 글자 영역으로 다듬기
                 val finished = PageFinisher.finish(mat)
                 val changed = finished.cols() != mat.cols() || finished.rows() != mat.rows()
+                log.append(if (changed) " 글자O" else " 글자X")
                 if (changed) {
                     try {
-                        return Result(writeMat(context, uri, finished), false, "글자")
+                        return Result(writeLogged(context, uri, finished, log), false, "글자")
                     } finally {
                         finished.release()
                     }
@@ -68,6 +81,7 @@ object Cropper {
                 finished.release()
                 // ② 글자도 못 찾음(표지 등) → 가운데 색 덩어리로 잘라내기
                 val box = PageDetector.centerRegionBox(mat)
+                log.append(if (box != null) " 색O" else " 색X")
                 if (box != null) {
                     val safe = Rect(
                         box.x.coerceIn(0, mat.cols() - 2),
@@ -78,7 +92,7 @@ object Cropper {
                     if (safe.width > 200 && safe.height > 200) {
                         val cut = Mat(mat, safe)
                         try {
-                            return Result(writeMat(context, uri, cut), false, "색")
+                            return Result(writeLogged(context, uri, cut, log), false, "색")
                         } finally {
                             cut.release()
                         }
@@ -135,9 +149,9 @@ object Cropper {
                 val leftPage = PageFinisher.finish(leftMat)
                 val rightPage = PageFinisher.finish(rightMat)
                 try {
-                    val savedLeft = writeMat(context, uri, leftPage)
-                    val rightUri = PhotoStore.newImageUri(context, session, nextIndex)
-                    val savedRight = rightUri != null && writeMat(context, rightUri, rightPage)
+                    val savedLeft = writeLogged(context, uri, leftPage, log)
+                    val rightUri = PhotoStore.newUri(context, session, nextIndex)
+                    val savedRight = rightUri != null && writeLogged(context, rightUri, rightPage, log)
                     return Result(savedLeft, savedLeft && savedRight, "테두리+분할")
                 } finally {
                     leftMat.release(); rightMat.release()
@@ -146,7 +160,7 @@ object Cropper {
             }
             val page = PageFinisher.finish(warped)
             try {
-                return Result(writeMat(context, uri, page), false, "테두리")
+                return Result(writeLogged(context, uri, page, log), false, "테두리")
             } finally {
                 page.release()
             }
@@ -249,6 +263,19 @@ object Cropper {
     }
 
     /** 잘라낸 사진으로 원본 파일을 덮어쓴다(갤러리 회전 정보도 초기화). */
+    /** 저장 결과를 기록할 수 있게 감싼 쓰기. */
+    private fun writeLogged(
+        context: Context, uri: Uri, mat: Mat, log: StringBuilder
+    ): Boolean {
+        val ok = writeMat(context, uri, mat)
+        if (ok) {
+            log.append(" 저장O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
+        } else {
+            log.append(" 저장X")
+        }
+        return ok
+    }
+
     private fun write(context: Context, uri: Uri, bitmap: Bitmap): Boolean {
         return try {
             context.contentResolver.openOutputStream(uri, "wt")?.use { out ->

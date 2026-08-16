@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
         ui.thumb.setOnClickListener { showLastPhoto() }
         ui.openFolder.setOnClickListener { openFolder() }
         ui.pageMode.setOnClickListener { cyclePageMode() }
+        ui.openFolder.setOnLongClickListener { shareDiagnostic(); true }
         ui.preview.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) focusAt(event.x, event.y)
             true
@@ -112,7 +113,7 @@ class MainActivity : AppCompatActivity() {
         ui.thumb.visibility = View.GONE
         ui.thumbBadge.visibility = View.GONE
         updateCount()
-        ui.status.text = "새 묶음 — ${PhotoStore.folderHint(sessionName)}"
+        ui.status.text = "새 묶음 — ${PhotoStore.folderHint(sessionName)} (원본/처리)"
     }
 
     private fun updateCount() {
@@ -346,19 +347,21 @@ class MainActivity : AppCompatActivity() {
     /** 저장된 사진을 윤곽대로 잘라내고 오른쪽 아래 미리보기를 갱신한다. */
     private fun finishShot(uri: Uri?) {
         lastUri = uri
-        ui.status.text = "${shotCount}장째 저장 — 윤곽대로 다듬는 중…"
+        ui.status.text = "${shotCount}장째 저장 — 다듬는 중…"
+        val index = shotCount
 
         Thread {
-            // 사진 자체에서 페이지 윤곽을 다시 찾아 그 안만 남기고, 펼친 책이면 둘로 나눈다
+            // 원본은 그대로 두고, 다듬은 결과는 '처리' 폴더에 새 파일로 저장한다
+            val log = StringBuilder("[").append(index).append("] ")
+            val target = uri?.let { PhotoStore.newUri(this, sessionName, index) }
             val result = if (uri != null) {
-                Cropper.autoCrop(this, uri, sessionName, shotCount + 1, pageMode)
-            } else Cropper.Result(false, false)
+                Cropper.autoCrop(this, uri, target, sessionName, shotCount + 1, pageMode, log)
+            } else Cropper.Result(false, false, "사진없음")
+            log.append(" → ").append(result.how)
+            writeDiagnostic(log.toString())
             if (result.split) shotCount++
-            if (!result.cropped && uri != null) {
-                // 다듬지 못한 사진은 파일 이름으로 표시해 둔다
-                PhotoStore.markUnprocessed(this, uri, sessionName, shotCount)
-            }
-            val thumb = uri?.let { loadThumb(it) }
+            if (result.cropped && target != null) lastUri = target
+            val thumb = (if (result.cropped) target else uri)?.let { loadThumb(it) }
             runOnUiThread {
                 if (thumb != null) {
                     ui.thumb.setImageBitmap(thumb)
@@ -370,10 +373,22 @@ class MainActivity : AppCompatActivity() {
                 ui.status.text = when {
                     result.split -> "두 쪽 저장 (${shotCount - 1}·${shotCount}쪽) [${result.how}]"
                     result.cropped -> "${shotCount}장째 잘라 저장 [${result.how}] · 다음 쪽으로"
-                    else -> "${shotCount}장째 — 통째로 저장 [${result.how}]"
+                    else -> "${shotCount}장째 — 다듬기 실패 [${result.how}] · 원본만 저장됨"
                 }
             }
         }.start()
+    }
+
+    /** 무엇이 왜 안 됐는지 남긴다(폴더 버튼을 길게 누르면 이 파일을 보낼 수 있다). */
+    private fun writeDiagnostic(line: String) {
+        try {
+            val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: return
+            dir.mkdirs()
+            File(dir, "진단_$sessionName.txt").appendText(line + "
+")
+        } catch (e: Throwable) {
+            // 진단 기록 실패는 촬영에 영향을 주지 않는다
+        }
     }
 
     private fun loadThumb(uri: Uri): android.graphics.Bitmap? {
@@ -403,9 +418,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 진단 기록을 보낸다(무엇이 왜 안 잘렸는지 확인용). */
+    private fun shareDiagnostic() {
+        val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+        val file = File(dir, "진단_$sessionName.txt")
+        if (!file.exists()) {
+            Toast.makeText(this, "아직 기록이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            startActivity(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }, "진단 기록 보내기"
+                )
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "보내지 못했습니다: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     /** 이번 묶음이 저장된 폴더를 연다(안 되면 갤러리를 연다). */
     private fun openFolder() {
-        val path = "Pictures/${PhotoStore.ROOT}/$sessionName"
+        val path = "Pictures/${PhotoStore.ROOT}/$sessionName/${PhotoStore.DONE}"
         val tries = mutableListOf<Intent>()
         try {
             val docUri = DocumentsContract.buildDocumentUri(

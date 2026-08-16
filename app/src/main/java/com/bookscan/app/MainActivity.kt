@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
             ui.status.text = when (kind) {
                 Detectors.Kind.SMART -> "SmartCropper — 학습 모델(TFLite)로 테두리를 찾습니다"
                 Detectors.Kind.ALIGNER -> "DocAligner — 네 귀퉁이를 직접 찍는 학습 모델(ONNX)"
-                Detectors.Kind.MINE -> "내 모델 — 이 책 사진 115장으로 직접 학습시킨 것"
+                Detectors.Kind.MINE -> "내 모델 — 이 책 사진 186장으로 학습(겹침도 0.966)"
                 Detectors.Kind.RULE -> "예전 규칙 — 밝기·윤곽선으로 찾습니다"
             }
         }

@@ -15,7 +15,7 @@ import org.opencv.imgproc.Imgproc
 import java.nio.FloatBuffer
 
 /**
- * **내 모델** — 원장님 책 사진 115장으로 직접 학습시킨 작은 U-Net.
+ * **내 모델** — 원장님 책 사진 186장으로 직접 학습시킨 작은 U-Net(겹침도 0.966).
  *
  * 범용 모델(SmartCropper·DocAligner)은 온갖 문서를 두루 맞히려 배웠지만,
  * 이 모델은 같은 책·같은 책상·같은 폰만 배웠다. 256×256으로 줄인 사진에서

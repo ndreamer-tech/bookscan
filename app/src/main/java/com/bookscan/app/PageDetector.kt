@@ -73,13 +73,15 @@ object PageDetector {
                     return Result(null, width, height, 0f, sharpness, brightness, 1f, signature)
                 }
                 val area = polygonArea(quadSmall)
+                // 「꽉 찼는가」는 종이 전체로 보고, 안내 네모는 **한 면**만 그린다
                 val fill = (area / (small.cols() * small.rows())).toFloat()
-                val skew = skewOf(quadSmall)
+                val onePage = singlePage(small, quadSmall)
+                val skew = skewOf(onePage)
 
                 val quad = FloatArray(8)
                 for (i in 0 until 4) {
-                    quad[i * 2] = (quadSmall[i].x / scale).toFloat()
-                    quad[i * 2 + 1] = (quadSmall[i].y / scale).toFloat()
+                    quad[i * 2] = (onePage[i].x / scale).toFloat()
+                    quad[i * 2 + 1] = (onePage[i].y / scale).toFloat()
                 }
                 return Result(quad, width, height, fill, sharpness, brightness, skew, signature)
             } finally {
@@ -87,6 +89,85 @@ object PageDetector {
             }
         } finally {
             gray.release()
+        }
+    }
+
+
+    /**
+     * 펼친 책이면 **책등 그늘**에서 갈라 한 쪽만 남긴다.
+     *
+     * 두 면을 한꺼번에 잡으면 글자가 작아 인식이 나빠지고, 찍은 뒤 자르기도 어렵다.
+     * 책등은 두 면 사이가 그늘져 세로로 어두운 골이 생기므로 그 자리를 찾는다.
+     * 골이 뚜렷하지 않으면(한 면만 찍은 사진) 그대로 둔다.
+     */
+    private fun singlePage(gray: Mat, quad: Array<Point>): Array<Point> {
+        val (tl, tr, br, bl) = quad
+        val left = minOf(tl.x, bl.x)
+        val right = maxOf(tr.x, br.x)
+        val top = minOf(tl.y, tr.y)
+        val bottom = maxOf(bl.y, br.y)
+        if (right - left < 60 || bottom - top < 60) return quad
+
+        val y0 = (top + (bottom - top) * 0.18).toInt().coerceIn(0, gray.rows() - 2)
+        val y1 = (bottom - (bottom - top) * 0.18).toInt().coerceIn(y0 + 1, gray.rows())
+        val x0 = left.toInt().coerceIn(0, gray.cols() - 2)
+        val x1 = right.toInt().coerceIn(x0 + 1, gray.cols())
+        val band = Mat(gray, Rect(x0, y0, x1 - x0, y1 - y0))
+        val columns = Mat()
+        try {
+            Core.reduce(band, columns, 0, Core.REDUCE_AVG, CvType.CV_32F)
+            val width = columns.cols()
+            if (width < 40) return quad
+            val values = FloatArray(width)
+            columns.get(0, 0, values)
+
+            val smooth = FloatArray(width)
+            for (i in 0 until width) {
+                var sum = 0f
+                var n = 0
+                for (k in -4..4) {
+                    val j = i + k
+                    if (j in 0 until width) { sum += values[j]; n++ }
+                }
+                smooth[i] = sum / n
+            }
+            val middle = smooth.sorted()[width / 2]
+            if (middle <= 1f) return quad
+
+            var cut = -1
+            var lowest = Float.MAX_VALUE
+            for (i in (width * 0.25).toInt() until (width * 0.75).toInt()) {
+                if (smooth[i] < lowest) { lowest = smooth[i]; cut = i }
+            }
+            if (cut < 0 || lowest > middle * 0.90f) return quad   // 뚜렷한 골이 없다
+
+            // 글씨가 더 많은 쪽을 본문으로 본다
+            val level = middle * 0.72
+            var inkLeft = 0
+            var inkRight = 0
+            val row = ByteArray(x1 - x0)
+            for (y in y0 until y1 step 3) {
+                gray.get(y, x0, row)
+                for (i in row.indices) {
+                    val v = row[i].toInt() and 0xFF
+                    if (v < level) { if (i < cut) inkLeft++ else inkRight++ }
+                }
+            }
+            val keepRight = inkRight > inkLeft
+            val cutX = x0 + cut.toDouble()
+
+            fun along(a: Point, b: Point): Point {
+                val t = ((cutX - a.x) / (b.x - a.x)).coerceIn(0.0, 1.0)
+                return Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+            }
+            val topCut = along(tl, tr)
+            val bottomCut = along(bl, br)
+            return if (keepRight) arrayOf(topCut, tr, br, bottomCut)
+            else arrayOf(tl, topCut, bottomCut, bl)
+        } catch (e: Throwable) {
+            return quad
+        } finally {
+            band.release(); columns.release()
         }
     }
 

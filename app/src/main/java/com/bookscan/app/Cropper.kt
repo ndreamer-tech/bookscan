@@ -64,15 +64,23 @@ object Cropper {
             log.append(" 사진 ").append(mat.cols()).append("x").append(mat.rows())
 
             // 학습 모델이 테두리를 잡으면 그 네모부터 반듯하게 편다
-            Detectors.prepare(context)
+            // 어느 검출기로 무엇을 했는지 반드시 남긴다(실패도 기록해야 견줄 수 있다)
+            val ready = Detectors.ready(context)
+            log.append(" [").append(Detectors.tag).append(if (ready) "·준비O" else "·준비X").append("]")
             var smartDone = false
-            Detectors.quad(bitmap)?.let { corners ->
-                warpQuad(mat, corners)?.let { flat ->
+            val corners = Detectors.quad(bitmap)
+            if (corners == null) {
+                log.append(" 검출X")
+            } else {
+                val flat = warpQuad(mat, corners)
+                if (flat == null) {
+                    log.append(" 펴기X")
+                } else {
                     mat.release()
                     flat.copyTo(mat)
                     flat.release()
                     smartDone = true
-                    log.append(" ").append(Detectors.tag).append("검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
+                    log.append(" 검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
                 }
             }
 

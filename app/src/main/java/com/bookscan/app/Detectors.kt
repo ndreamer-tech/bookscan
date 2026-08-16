@@ -76,6 +76,16 @@ object Detectors {
         }
     }
 
+    /** 모델이 실제로 올라와 있는가(진단용). */
+    fun ready(context: Context): Boolean {
+        prepare(context)
+        return when (kind) {
+            Kind.SMART -> SmartDetect.usable
+            Kind.ALIGNER -> DocAlignerDetect.usable
+            Kind.RULE -> false
+        }
+    }
+
     /** 진단 기록에 남길 짧은 이름. */
     val tag get() = when (kind) {
         Kind.SMART -> "스마트"

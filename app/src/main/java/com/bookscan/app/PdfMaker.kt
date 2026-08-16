@@ -42,8 +42,11 @@ object PdfMaker {
     }
 
     private fun decode(open: () -> InputStream?): Bitmap? {
+        // 크기만 재는 단계는 비트맵을 만들지 않는다(null이 정상)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        open()?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        val sizeStream = open() ?: return null
+        sizeStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
         val side = maxOf(bounds.outWidth, bounds.outHeight)
         while (side / sample > MAX_SIDE) sample *= 2

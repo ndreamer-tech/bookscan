@@ -231,16 +231,18 @@ object Cropper {
 
     /** 사진을 읽어 **똑바로 세운** 비트맵으로 돌려준다(EXIF 회전 반영). */
     private fun decodeUpright(context: Context, uri: Uri): Bitmap? {
+        // 크기만 재는 단계는 비트맵을 만들지 않는다(null이 정상) — 스트림 자체만 확인해야 한다
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: return null
+        val sizeStream = context.contentResolver.openInputStream(uri) ?: return null
+        sizeStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         var sample = 1
         val side = max(bounds.outWidth, bounds.outHeight)
         while (side / sample > MAX_SIDE) sample *= 2
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bitmap = context.contentResolver.openInputStream(uri)?.use {
+        val pixelStream = context.contentResolver.openInputStream(uri) ?: return null
+        val bitmap = pixelStream.use {
             BitmapFactory.decodeStream(it, null, options)
         } ?: return null
 

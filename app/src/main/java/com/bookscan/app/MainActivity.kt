@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var lastUri: Uri? = null
     private var pageMode = Cropper.PageMode.AUTO
     private var smoothQuad: FloatArray? = null
+    private var cvReady = false
     private var goodSince = 0L
     private var lastShotAt = 0L
     private var lastFocusAt = 0L
@@ -75,8 +76,13 @@ class MainActivity : AppCompatActivity() {
         ui = ActivityMainBinding.inflate(layoutInflater)
         setContentView(ui.root)
 
-        if (!OpenCVLoader.initLocal()) {
-            Toast.makeText(this, "윤곽 인식 모듈을 불러오지 못했습니다.", Toast.LENGTH_LONG).show()
+        cvReady = try {
+            OpenCVLoader.initLocal()
+        } catch (e: Throwable) {
+            false
+        }
+        if (!cvReady) {
+            Toast.makeText(this, "윤곽 인식 모듈(OpenCV)을 불러오지 못했습니다.", Toast.LENGTH_LONG).show()
         }
 
         newSession()
@@ -212,7 +218,7 @@ class MainActivity : AppCompatActivity() {
         val marks = buildString {
             append("v")
             append(BuildConfig.VERSION_NAME)
-            append("  ")
+            append(if (cvReady) "(CV✓)  " else "(CV✗)  ")
             append(if (r.hasQuad) "윤곽 ✓" else "윤곽 ✗")
             append(if (r.fillOk) "  채움 ✓" else "  채움 ✗")
             append(if (r.sharpOk) "  초점 ✓" else "  초점 ✗")
@@ -354,11 +360,20 @@ class MainActivity : AppCompatActivity() {
             // 원본은 그대로 두고, 다듬은 결과는 '처리' 폴더에 새 파일로 저장한다
             val log = StringBuilder("[").append(index).append("] ")
             val target = uri?.let { PhotoStore.newUri(this, sessionName, index) }
+            log.append(if (uri != null) " 원본O" else " 원본X")
+            log.append(if (target != null) " 자리O" else " 자리X")
+            log.append(if (cvReady) " CV O" else " CV X")
             val result = if (uri != null) {
                 Cropper.autoCrop(this, uri, target, sessionName, shotCount + 1, pageMode, log)
             } else Cropper.Result(false, false, "사진없음")
             log.append(" → ").append(result.how)
-            writeDiagnostic(log.toString())
+            val diagnosis = log.toString()
+            writeDiagnostic(diagnosis)
+            runOnUiThread {
+                if (!result.cropped) {
+                    Toast.makeText(this, diagnosis, Toast.LENGTH_LONG).show()
+                }
+            }
             if (result.split) shotCount++
             if (result.cropped && target != null) lastUri = target
             val thumb = (if (result.cropped) target else uri)?.let { loadThumb(it) }

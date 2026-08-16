@@ -31,42 +31,21 @@
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp">
 
         <Button
             android:id="@+id/bookShoot"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="이어 찍기" />
-
-        <Button
-            android:id="@+id/bookRedo"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="다시 다듬기" />
-
-        <Button
-            android:id="@+id/bookPdf"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="PDF" />
+            android:text="📷 이어 찍기" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/bookStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="10dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
         android:textColor="#8B93A1"
         android:textSize="13sp" />
 
@@ -107,5 +86,49 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="삭제" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#171B22"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:id="@+id/actImport"
+            style="@style/BookAction">
+            <TextView style="@style/BookActionIcon" android:text="🖼" />
+            <TextView style="@style/BookActionText" android:text="가져오기" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/actText"
+            style="@style/BookAction">
+            <TextView style="@style/BookActionIcon" android:text="🔤" />
+            <TextView style="@style/BookActionText" android:text="텍스트 인식" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/actShare"
+            style="@style/BookAction">
+            <TextView style="@style/BookActionIcon" android:text="↗" />
+            <TextView style="@style/BookActionText" android:text="공유하기" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/actPdf"
+            style="@style/BookAction">
+            <TextView style="@style/BookActionIcon" android:text="📄" />
+            <TextView style="@style/BookActionText" android:text="PDF 만들기" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/actMore"
+            style="@style/BookAction">
+            <TextView style="@style/BookActionIcon" android:text="⋯" />
+            <TextView style="@style/BookActionText" android:text="더보기" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

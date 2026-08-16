@@ -1,9 +1,10 @@
 package com.bookscan.app
 
 import android.app.AlertDialog
-import android.content.Intent
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
@@ -15,18 +16,24 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bookscan.app.databinding.ActivityBookBinding
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * **책 한 권** — 찍어 둔 쪽들을 번호 순으로 보여주고, 순서를 고치거나 다시 다듬는다.
+ * **책 한 권** — 찍어 둔 쪽들을 번호 순으로 보여주고, 아래 도구줄로 한꺼번에 처리한다.
  *
- * 쪽을 누르면 아래에 「◀ 앞으로 / 뒤로 ▶ / 삭제」가 뜬다. 순서를 바꾸면 파일 이름이
- * 001.jpg부터 다시 매겨지므로, PC로 옮겨도 그대로 읽힌다.
+ * 쪽을 누르면 「◀ 앞으로 / 뒤로 ▶ / 삭제」가 뜬다. 순서를 바꾸면 파일 이름이
+ * 001.jpg부터 다시 매겨지므로 PC로 옮겨도 그대로 읽힌다.
  */
 class BookActivity : AppCompatActivity() {
 
@@ -40,6 +47,11 @@ class BookActivity : AppCompatActivity() {
     private var chosen = -1
     private val workers = Executors.newFixedThreadPool(3)
     private val main = Handler(Looper.getMainLooper())
+
+    /** 갤러리에서 사진을 골라 이 책에 넣는다. */
+    private val picker = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> if (!uris.isNullOrEmpty()) importPhotos(uris) }
 
     override fun onCreate(saved: Bundle?) {
         super.onCreate(saved)
@@ -57,11 +69,15 @@ class BookActivity : AppCompatActivity() {
                 Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
             )
         }
-        ui.bookRedo.setOnClickListener { askRedo() }
-        ui.bookPdf.setOnClickListener { makePdf() }
         ui.pageUp.setOnClickListener { movePage(-1) }
         ui.pageDown.setOnClickListener { movePage(1) }
         ui.pageDelete.setOnClickListener { askDelete() }
+
+        ui.actImport.setOnClickListener { picker.launch(arrayOf("image/*")) }
+        ui.actText.setOnClickListener { askReadText() }
+        ui.actShare.setOnClickListener { sharePages() }
+        ui.actPdf.setOnClickListener { makePdf() }
+        ui.actMore.setOnClickListener { showMore() }
     }
 
     override fun onResume() {
@@ -83,13 +99,15 @@ class BookActivity : AppCompatActivity() {
         }
     }
 
+    private fun say(text: String) = main.post { ui.bookStatus.text = text }
+
     // ── 순서 고치기 ───────────────────────────────────────────────
 
     private fun movePage(step: Int) {
         val from = chosen
         val to = from + step
         if (from < 0 || to !in pages.indices) return
-        ui.bookStatus.text = "순서 바꾸는 중…"
+        say("순서 바꾸는 중…")
         workers.execute {
             val ok = Library.move(this, book, from, to)
             val found = Library.pages(this, book)
@@ -97,8 +115,7 @@ class BookActivity : AppCompatActivity() {
                 pages.clear(); pages.addAll(found)
                 chosen = if (ok) to else from
                 ui.pageGrid.adapter?.notifyDataSetChanged()
-                ui.bookStatus.text =
-                    if (ok) "${to + 1}쪽으로 옮겼습니다" else "옮기지 못했습니다"
+                ui.bookStatus.text = if (ok) "${to + 1}쪽으로 옮겼습니다" else "옮기지 못했습니다"
             }
         }
     }
@@ -126,7 +143,189 @@ class BookActivity : AppCompatActivity() {
             .show()
     }
 
-    // ── 일괄 다시 다듬기 ──────────────────────────────────────────
+    // ── 가져오기 ──────────────────────────────────────────────────
+
+    /** 갤러리·파일에서 고른 사진을 이 책 뒤에 붙이고 곧바로 다듬는다. */
+    private fun importPhotos(uris: List<Uri>) {
+        workers.execute {
+            val start = Library.pagesIn(this, book, PhotoStore.RAW).size
+            var added = 0
+            for ((i, source) in uris.withIndex()) {
+                say("가져오는 중… ${i + 1}/${uris.size}")
+                val index = start + i + 1
+                val raw = PhotoStore.newUri(this, book, index, PhotoStore.RAW) ?: continue
+                val copied = try {
+                    contentResolver.openInputStream(source)?.use { input ->
+                        contentResolver.openOutputStream(raw)?.use { out ->
+                            input.copyTo(out); true
+                        } ?: false
+                    } ?: false
+                } catch (e: Exception) {
+                    false
+                }
+                if (!copied) continue
+                val target = PhotoStore.newUri(this, book, index)
+                Cropper.autoCrop(
+                    this, raw, target, book, index + 1, Cropper.PageMode.AUTO, StringBuilder()
+                )
+                added++
+            }
+            val found = Library.pages(this, book)
+            main.post {
+                pages.clear(); pages.addAll(found)
+                ui.pageGrid.adapter?.notifyDataSetChanged()
+                ui.bookStatus.text = "${added}장 가져와 다듬었습니다 — 모두 ${pages.size}쪽"
+            }
+        }
+    }
+
+    // ── 텍스트 인식 ───────────────────────────────────────────────
+
+    private fun askReadText() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "쪽이 없습니다", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("텍스트 인식")
+            .setMessage("${pages.size}쪽의 글자를 읽어 하나의 txt 파일로 저장합니다. 인터넷 없이 폰에서 처리합니다.")
+            .setPositiveButton("시작") { _, _ -> readText() }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun readText() {
+        val snapshot = ArrayList(pages)
+        workers.execute {
+            val reader = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+            val out = StringBuilder()
+            var done = 0
+            for ((i, page) in snapshot.withIndex()) {
+                say("글자 읽는 중… ${i + 1}/${snapshot.size}")
+                val text = try {
+                    val image = InputImage.fromFilePath(this, page.uri)
+                    Tasks.await(reader.process(image)).text
+                } catch (e: Throwable) {
+                    ""
+                }
+                out.append("── ").append(i + 1).append("쪽 ──").append(System.lineSeparator())
+                out.append(text).append(System.lineSeparator()).append(System.lineSeparator())
+                if (text.isNotBlank()) done++
+            }
+            val name = "책스캔_$book.txt"
+            val saved = saveToDownloads(name, "text/plain", out.toString().toByteArray())
+            main.post {
+                ui.bookStatus.text = if (saved) {
+                    "글자 읽기 끝 — ${done}/${snapshot.size}쪽, 내려받기 폴더에 $name"
+                } else {
+                    "글자는 읽었지만 파일로 저장하지 못했습니다"
+                }
+            }
+        }
+    }
+
+    // ── 공유·PDF ─────────────────────────────────────────────────
+
+    private fun sharePages() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "쪽이 없습니다", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val one = chosen in pages.indices
+        val list = if (one) arrayListOf(pages[chosen].uri) else ArrayList(pages.map { it.uri })
+        try {
+            val intent = if (list.size == 1) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, list[0])
+                }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "image/jpeg"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, list)
+                }
+            }
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(Intent.createChooser(intent, if (one) "이 쪽 보내기" else "${list.size}쪽 보내기"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "보내지 못했습니다", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun makePdf() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "쪽이 없습니다", Toast.LENGTH_SHORT).show()
+            return
+        }
+        say("PDF 만드는 중… (${pages.size}쪽)")
+        val snapshot = ArrayList(pages)
+        workers.execute {
+            val photos = snapshot.map { page -> { contentResolver.openInputStream(page.uri) } }
+            val name = "책스캔_$book.pdf"
+            val file = File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), name)
+            val ok = PdfMaker.build(photos, file)
+            val saved = ok && saveToDownloads(name, "application/pdf", file.readBytes())
+            main.post {
+                ui.bookStatus.text = when {
+                    saved -> "내려받기 폴더에 $name 저장"
+                    ok -> "PDF는 만들었지만 내려받기 폴더 저장은 실패"
+                    else -> "PDF를 만들지 못했습니다"
+                }
+                if (ok) share(file)
+            }
+        }
+    }
+
+    private fun share(file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            startActivity(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                    "PDF 보내기"
+                )
+            )
+        } catch (e: Exception) {
+            // 공유는 못 해도 파일은 이미 저장돼 있다
+        }
+    }
+
+    private fun saveToDownloads(name: String, mime: String, bytes: ByteArray): Boolean {
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+            ) ?: return false
+            contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return false
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // ── 더보기 ────────────────────────────────────────────────────
+
+    private fun showMore() {
+        val items = arrayOf("다시 다듬기(원본 전체)", "책 이름 바꾸기", "책 지우기")
+        AlertDialog.Builder(this)
+            .setTitle(book)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> askRedo()
+                    1 -> askRename()
+                    2 -> askRemoveBook()
+                }
+            }
+            .show()
+    }
 
     private fun askRedo() {
         val raw = Library.pagesIn(this, book, PhotoStore.RAW)
@@ -143,23 +342,20 @@ class BookActivity : AppCompatActivity() {
     }
 
     private fun redoAll(raw: List<Library.Page>) {
-        ui.bookRedo.isEnabled = false
         workers.execute {
-            // 지금 처리본을 먼저 비운다(번호가 어긋나지 않게)
             for (page in Library.pagesIn(this, book, PhotoStore.DONE)) {
                 try {
                     contentResolver.delete(page.uri, null, null)
                 } catch (e: Exception) {
-                    // 지우지 못한 것은 아래에서 덮어쓴다
+                    // 못 지운 것은 아래에서 덮어쓴다
                 }
             }
             var done = 0
             for ((i, page) in raw.withIndex()) {
-                main.post { ui.bookStatus.text = "다시 다듬는 중… ${i + 1}/${raw.size}" }
+                say("다시 다듬는 중… ${i + 1}/${raw.size}")
                 val target = PhotoStore.newUri(this, book, i + 1)
-                val log = StringBuilder()
                 val result = Cropper.autoCrop(
-                    this, page.uri, target, book, i + 2, Cropper.PageMode.AUTO, log
+                    this, page.uri, target, book, i + 2, Cropper.PageMode.AUTO, StringBuilder()
                 )
                 if (result.cropped) done++
             }
@@ -170,79 +366,52 @@ class BookActivity : AppCompatActivity() {
                 ui.pageTools.visibility = View.GONE
                 ui.pageGrid.adapter?.notifyDataSetChanged()
                 ui.bookStatus.text = "다시 다듬기 끝 — ${done}/${raw.size}장"
-                ui.bookRedo.isEnabled = true
             }
         }
     }
 
-    // ── PDF ───────────────────────────────────────────────────────
-
-    private fun makePdf() {
-        if (pages.isEmpty()) {
-            Toast.makeText(this, "쪽이 없습니다", Toast.LENGTH_SHORT).show()
-            return
+    private fun askRename() {
+        val input = android.widget.EditText(this).apply {
+            setText(book)
+            setSelection(text.length)
         }
-        ui.bookPdf.isEnabled = false
-        ui.bookStatus.text = "PDF 만드는 중… (${pages.size}쪽)"
-        val snapshot = ArrayList(pages)
-        workers.execute {
-            val photos = snapshot.map { page ->
-                { contentResolver.openInputStream(page.uri) }
-            }
-            val name = "책스캔_$book.pdf"
-            val file = File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), name)
-            val ok = PdfMaker.build(photos, file)
-            val saved = ok && copyToDownloads(file, name)
-            main.post {
-                ui.bookStatus.text = when {
-                    saved -> "다운로드 폴더에 $name 저장"
-                    ok -> "PDF 준비 완료(내려받기 폴더 저장은 실패)"
-                    else -> "PDF를 만들지 못했습니다"
+        AlertDialog.Builder(this)
+            .setTitle("책 이름 바꾸기")
+            .setView(input)
+            .setPositiveButton("바꾸기") { _, _ ->
+                val wanted = input.text.toString().trim()
+                    .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                if (wanted.isBlank() || wanted == book) return@setPositiveButton
+                workers.execute {
+                    val name = Library.freshName(this, wanted)
+                    val ok = Library.renameBook(this, book, name)
+                    main.post {
+                        if (ok) {
+                            book = name
+                            ui.bookTitle.text = name
+                            reload()
+                        } else {
+                            ui.bookStatus.text = "이름을 바꾸지 못했습니다"
+                        }
+                    }
                 }
-                ui.bookPdf.isEnabled = true
-                if (ok) share(file)
             }
-        }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
-    /** 만든 PDF를 내려받기 폴더에 복사한다(폰 파일 앱에서 바로 보이게). */
-    private fun copyToDownloads(file: File, name: String): Boolean {
-        return try {
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+    private fun askRemoveBook() {
+        AlertDialog.Builder(this)
+            .setTitle("「$book」 지우기")
+            .setMessage("이 책의 사진을 모두 지웁니다. 되돌릴 수 없습니다.")
+            .setPositiveButton("지우기") { _, _ ->
+                workers.execute {
+                    Library.removeBook(this, book)
+                    main.post { finish() }
+                }
             }
-            val uri = contentResolver.insert(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-            ) ?: return false
-            contentResolver.openOutputStream(uri)?.use { out ->
-                file.inputStream().use { it.copyTo(out) }
-            } ?: return false
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    private fun share(file: File) {
-        try {
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                this, "$packageName.fileprovider", file
-            )
-            startActivity(
-                Intent.createChooser(
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "application/pdf"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },
-                    "PDF 보내기"
-                )
-            )
-        } catch (e: Exception) {
-            // 공유는 못 해도 파일은 이미 저장돼 있다
-        }
+            .setNegativeButton("그대로 두기", null)
+            .show()
     }
 
     // ── 목록 ──────────────────────────────────────────────────────

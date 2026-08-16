@@ -6,4 +6,32 @@
         <item name="colorSecondary">#2ECC71</item>
         <item name="android:statusBarColor">#000000</item>
     </style>
+
+    <!-- 책 화면 아래 도구줄 한 칸 -->
+    <style name="BookAction">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">6dp</item>
+        <item name="android:background">?android:attr/selectableItemBackground</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="BookActionIcon">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textColor">#E6EAF2</item>
+    </style>
+
+    <style name="BookActionText">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:paddingTop">2dp</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">#AAB2C0</item>
+    </style>
 </resources>

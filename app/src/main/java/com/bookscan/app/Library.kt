@@ -161,6 +161,28 @@ object Library {
         }
     }
 
+    /** 책 이름(폴더)을 바꾼다 — 사진들의 저장 경로를 옮긴다. */
+    fun renameBook(context: Context, from: String, to: String): Boolean {
+        var moved = 0
+        for (kind in listOf(PhotoStore.RAW, PhotoStore.DONE)) {
+            for (page in pagesIn(context, from, kind)) {
+                try {
+                    val values = ContentValues().apply {
+                        put(
+                            MediaStore.Images.Media.RELATIVE_PATH,
+                            PhotoStore.relativePath(to, kind)
+                        )
+                    }
+                    context.contentResolver.update(page.uri, values, null, null)
+                    moved++
+                } catch (e: Exception) {
+                    return false
+                }
+            }
+        }
+        return moved > 0
+    }
+
     /** 책 한 권을 통째로 지운다. */
     fun removeBook(context: Context, book: String): Boolean {
         return try {

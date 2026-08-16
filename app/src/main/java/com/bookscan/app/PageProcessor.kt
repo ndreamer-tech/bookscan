@@ -40,10 +40,21 @@ object PageProcessor {
     }
 
     /** rgba 사진 → 다듬은 새 Mat(호출한 쪽이 release). 어디까지 했는지 note에 남긴다. */
-    fun finish(rgba: Mat, note: StringBuilder, pickPage: Boolean = true): Mat {
+    fun finish(
+        rgba: Mat,
+        note: StringBuilder,
+        pickPage: Boolean = true,
+        /** 이미 페이지만 잘려 있는 사진 — 다시 자르지 않고 수평·크기만 맞춘다 */
+        light: Boolean = false,
+    ): Mat {
         var work = rgba.clone()
         try {
             if (eraseHand(work)) note.append(" 손O")
+
+            if (light) {
+                deskew(work, note)?.let { rotated -> work.release(); work = rotated }
+                return enlarge(work, note)
+            }
 
             val flat = flattenPaper(work, note)
             if (flat != null) {
@@ -61,20 +72,26 @@ object PageProcessor {
                 }
             }
 
-            val scale = OUT_WIDTH.toDouble() / max(work.cols(), 1)
-            if (scale < 0.98 || scale > 1.02) {
-                val resized = Mat()
-                Imgproc.resize(
-                    work, resized, Size(), scale, scale,
-                    if (scale > 1) Imgproc.INTER_CUBIC else Imgproc.INTER_AREA
-                )
-                work.release(); work = resized
-            }
-            return work
+            return enlarge(work, note)
         } catch (e: Throwable) {
             note.append(" 오류")
             return work
         }
+    }
+
+    /** 가로 기준 크기로 키운다(호출한 쪽이 release). */
+    private fun enlarge(work: Mat, note: StringBuilder): Mat {
+        val scale = OUT_WIDTH.toDouble() / max(work.cols(), 1)
+        if (scale < 0.98 || scale > 1.02) {
+            val resized = Mat()
+            Imgproc.resize(
+                work, resized, Size(), scale, scale,
+                if (scale > 1) Imgproc.INTER_CUBIC else Imgproc.INTER_AREA
+            )
+            work.release()
+            return resized
+        }
+        return work
     }
 
     // ── 밝기 도우미 ───────────────────────────────────────────────

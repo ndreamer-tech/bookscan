@@ -65,11 +65,13 @@ object Cropper {
 
             // 학습 모델이 테두리를 잡으면 그 네모부터 반듯하게 편다
             SmartDetect.prepare(context)
+            var smartDone = false
             SmartDetect.quad(bitmap)?.let { corners ->
                 warpQuad(mat, corners)?.let { flat ->
                     mat.release()
                     flat.copyTo(mat)
                     flat.release()
+                    smartDone = true
                     log.append(" 학습검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
                 }
             }
@@ -98,7 +100,8 @@ object Cropper {
                 }
             }
 
-            val page = PageProcessor.finish(mat, log)
+            // 이미 페이지만 잘려 있으면 다시 자르지 않는다(비율이 망가진다)
+            val page = PageProcessor.finish(mat, log, light = smartDone)
             try {
                 return Result(writeLogged(context, target, page, log), false, "한쪽")
             } finally {

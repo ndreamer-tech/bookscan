@@ -85,6 +85,12 @@ object SmartDetect {
         val bottom = len(q[3], q[2])
         val left = len(q[0], q[3])
         val right = len(q[1], q[2])
+        // 사진 전체를 그대로 돌려준 것은 「못 찾았다」는 뜻이다
+        val area = 0.5 * abs(
+            (q[0].x * q[1].y - q[1].x * q[0].y) + (q[1].x * q[2].y - q[2].x * q[1].y) +
+                (q[2].x * q[3].y - q[3].x * q[2].y) + (q[3].x * q[0].y - q[0].x * q[3].y)
+        )
+        if (area > width.toDouble() * height * 0.95) return false
         if (minOf(top, bottom) < width * 0.25) return false
         if (minOf(left, right) < height * 0.25) return false
         if (maxOf(top, bottom) / maxOf(minOf(top, bottom), 1.0) > 1.6) return false

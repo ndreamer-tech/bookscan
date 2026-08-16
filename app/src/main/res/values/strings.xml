@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">책스캔</string>
+    <string name="hint_start">책 페이지가 다 보이도록 비춰 주세요</string>
+    <string name="auto_shot">자동 촬영</string>
+    <string name="shoot">촬영</string>
+    <string name="new_session">새 묶음</string>
+    <string name="make_pdf">PDF</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.BookScan" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#2E4057</item>
+        <item name="colorPrimaryVariant">#1F2C3D</item>
+        <item name="colorSecondary">#2ECC71</item>
+        <item name="android:statusBarColor">#000000</item>
+    </style>
+</resources>

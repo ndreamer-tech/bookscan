@@ -297,7 +297,8 @@ class MainActivity : AppCompatActivity() {
         val quad = pendingQuad
         val srcW = pendingSrcW
         val srcH = pendingSrcH
-        val crop = ui.cropOnly.isChecked && quad != null && uri != null
+        // 윤곽이 잡혔으면 언제나 그 안만 남긴다(배경·책상은 필요 없다)
+        val crop = quad != null && uri != null
         ui.status.text = if (crop) "${shotCount}장째 저장 — 윤곽대로 다듬는 중…" else "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
 
         Thread {

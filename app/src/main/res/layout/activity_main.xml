@@ -112,16 +112,6 @@
                 android:textColor="#FFFFFF"
                 android:textSize="15sp" />
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/cropOnly"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:checked="true"
-                android:text="@string/crop_only"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp" />
-
             <TextView
                 android:id="@+id/count"
                 android:layout_width="0dp"

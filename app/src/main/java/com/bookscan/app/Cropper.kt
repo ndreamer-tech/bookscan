@@ -53,121 +53,50 @@ object Cropper {
             log.append(" 저장자리없음")
             return Result(false, false, "자리없음")
         }
-        val uri = target
         val bitmap = decodeUpright(context, source) ?: run {
             log.append(" 사진읽기실패")
             return Result(false, false, "읽기실패")
         }
         val mat = Mat()
-        val warped = Mat()
         try {
             Utils.bitmapToMat(bitmap, mat)
             if (mat.empty()) return Result(false, false, "빈사진")
             log.append(" 사진 ").append(mat.cols()).append("x").append(mat.rows())
-            val rough = PageDetector.detectQuadInColor(mat)
-            log.append(if (rough != null) " 테두리O" else " 테두리X")
-            if (rough == null) {
-                // ① 테두리를 못 찾음 → 글자 영역으로 다듬기
-                val finished = PageFinisher.finish(mat)
-                val changed = finished.cols() != mat.cols() || finished.rows() != mat.rows()
-                log.append(if (changed) " 글자O" else " 글자X")
-                if (changed) {
-                    try {
-                        return Result(writeLogged(context, uri, finished, log), false, "글자")
-                    } finally {
-                        finished.release()
-                    }
-                }
-                finished.release()
-                // ② 글자도 못 찾음(표지 등) → 가운데 색 덩어리로 잘라내기
-                val box = PageDetector.centerRegionBox(mat)
-                log.append(if (box != null) " 색O" else " 색X")
-                if (box != null) {
-                    val safe = Rect(
-                        box.x.coerceIn(0, mat.cols() - 2),
-                        box.y.coerceIn(0, mat.rows() - 2),
-                        box.width.coerceAtMost(mat.cols() - box.x),
-                        box.height.coerceAtMost(mat.rows() - box.y)
-                    )
-                    if (safe.width > 200 && safe.height > 200) {
-                        val cut = Mat(mat, safe)
-                        try {
-                            return Result(writeLogged(context, uri, cut, log), false, "색")
-                        } finally {
-                            cut.release()
-                        }
-                    }
-                }
-                return Result(false, false, "실패")
-            }
-            // 테두리 직선에 맞춰 모서리를 정밀하게 다듬는다
-            val gray = Mat()
-            val quad = try {
-                Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-                PageDetector.refineWithLines(gray, rough)
-            } catch (e: Throwable) {
-                rough
-            } finally {
-                gray.release()
-            }
-            val points = Array(4) { i -> Point(quad[i * 2].toDouble(), quad[i * 2 + 1].toDouble()) }
 
-            val cx = points.sumOf { it.x } / 4
-            val cy = points.sumOf { it.y } / 4
-            for (p in points) {
-                p.x = (cx + (p.x - cx) * (1 + MARGIN)).coerceIn(0.0, mat.cols() - 1.0)
-                p.y = (cy + (p.y - cy) * (1 + MARGIN)).coerceIn(0.0, mat.rows() - 1.0)
-            }
-
-            val (tl, tr, br, bl) = points
-            val width = max(dist(tl, tr), dist(bl, br)).toInt()
-            val height = max(dist(tl, bl), dist(tr, br)).toInt()
-            if (width < 200 || height < 200) return Result(false, false, "너무작음")
-
-            val from = MatOfPoint2f(tl, tr, br, bl)
-            val to = MatOfPoint2f(
-                Point(0.0, 0.0),
-                Point(width - 1.0, 0.0),
-                Point(width - 1.0, height - 1.0),
-                Point(0.0, height - 1.0)
-            )
-            val transform = Imgproc.getPerspectiveTransform(from, to)
-            Imgproc.warpPerspective(mat, warped, transform, Size(width.toDouble(), height.toDouble()), Imgproc.INTER_CUBIC)
-            from.release(); to.release(); transform.release()
-
-            // 펼친 책이면 책등에서 좌·우 쪽으로 나눈다
+            // 펼친 책을 좌·우로 나눌지 정한다(자동은 가로로 넓을 때만)
             val spread = when (mode) {
                 PageMode.SINGLE -> false
                 PageMode.SPREAD -> true
-                PageMode.AUTO -> width > height * 1.05
+                PageMode.AUTO -> mat.cols() > mat.rows() * 1.05
             }
-            val cut = if (spread) findGutter(warped) else -1
+            val cut = if (spread) findGutter(mat) else -1
 
             if (cut > 0) {
-                val leftMat = Mat(warped, Rect(0, 0, cut, warped.rows()))
-                val rightMat = Mat(warped, Rect(cut, 0, warped.cols() - cut, warped.rows()))
-                val leftPage = PageFinisher.finish(leftMat)
-                val rightPage = PageFinisher.finish(rightMat)
+                val leftMat = Mat(mat, Rect(0, 0, cut, mat.rows()))
+                val rightMat = Mat(mat, Rect(cut, 0, mat.cols() - cut, mat.rows()))
+                val leftPage = PageProcessor.finish(leftMat, log)
+                val rightPage = PageProcessor.finish(rightMat, log)
                 try {
-                    val savedLeft = writeLogged(context, uri, leftPage, log)
+                    val savedLeft = writeLogged(context, target, leftPage, log)
                     val rightUri = PhotoStore.newUri(context, session, nextIndex)
                     val savedRight = rightUri != null && writeLogged(context, rightUri, rightPage, log)
-                    return Result(savedLeft, savedLeft && savedRight, "테두리+분할")
+                    return Result(savedLeft, savedLeft && savedRight, "두쪽")
                 } finally {
                     leftMat.release(); rightMat.release()
                     leftPage.release(); rightPage.release()
                 }
             }
-            val page = PageFinisher.finish(warped)
+
+            val page = PageProcessor.finish(mat, log)
             try {
-                return Result(writeLogged(context, uri, page, log), false, "테두리")
+                return Result(writeLogged(context, target, page, log), false, "한쪽")
             } finally {
                 page.release()
             }
         } catch (e: Throwable) {
             return Result(false, false, "오류")
         } finally {
-            mat.release(); warped.release(); bitmap.recycle()
+            mat.release(); bitmap.recycle()
         }
     }
 

@@ -53,7 +53,17 @@ object Cropper {
         try {
             Utils.bitmapToMat(bitmap, mat)
             if (mat.empty()) return Result(false, false)
-            val quad = PageDetector.detectQuadInColor(mat) ?: return Result(false, false)
+            val rough = PageDetector.detectQuadInColor(mat) ?: return Result(false, false)
+            // 테두리 직선에 맞춰 모서리를 정밀하게 다듬는다
+            val gray = Mat()
+            val quad = try {
+                Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
+                PageDetector.refineWithLines(gray, rough)
+            } catch (e: Throwable) {
+                rough
+            } finally {
+                gray.release()
+            }
             val points = Array(4) { i -> Point(quad[i * 2].toDouble(), quad[i * 2 + 1].toDouble()) }
 
             val cx = points.sumOf { it.x } / 4

@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingSignature: IntArray? = null
     private var lastUri: Uri? = null
     private var pageMode = Cropper.PageMode.AUTO
+    private var smoothQuad: FloatArray? = null
     private var goodSince = 0L
     private var lastShotAt = 0L
     private var lastFocusAt = 0L
@@ -204,7 +205,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onResult(r: PageDetector.Result) {
-        ui.overlay.update(r.quad, r.srcWidth, r.srcHeight, r.allOk)
+        // 화면 윤곽은 조금씩 흔들리므로 부드럽게 이어 그린다(눈에 안정적이고 판정도 덜 튄다)
+        ui.overlay.update(smoothed(r), r.srcWidth, r.srcHeight, r.allOk)
 
         val marks = buildString {
             append(if (r.hasQuad) "윤곽 ✓" else "윤곽 ✗")
@@ -251,6 +253,36 @@ class MainActivity : AppCompatActivity() {
                 focusAt(cx * scale + dx, cy * scale + dy)
             }
         }
+    }
+
+    /** 직전 윤곽과 크게 다르지 않으면 살짝 섞어 떨림을 줄인다. */
+    private fun smoothed(r: PageDetector.Result): FloatArray? {
+        val quad = r.quad
+        if (quad == null) {
+            smoothQuad = null
+            return null
+        }
+        val prev = smoothQuad
+        if (prev == null || prev.size != quad.size) {
+            smoothQuad = quad.copyOf()
+            return smoothQuad
+        }
+        val limit = 0.12f * maxOf(r.srcWidth, r.srcHeight)
+        var moved = 0f
+        for (i in 0 until 4) {
+            val dx = quad[i * 2] - prev[i * 2]
+            val dy = quad[i * 2 + 1] - prev[i * 2 + 1]
+            moved = maxOf(moved, kotlin.math.hypot(dx, dy))
+        }
+        if (moved > limit) {          // 다른 곳을 비추기 시작했다 — 새로 잡는다
+            smoothQuad = quad.copyOf()
+            return smoothQuad
+        }
+        val alpha = 0.35f
+        val out = FloatArray(8)
+        for (i in 0 until 8) out[i] = prev[i] * (1 - alpha) + quad[i] * alpha
+        smoothQuad = out
+        return out
     }
 
     // ── 촬영 ──────────────────────────────────────────────────────

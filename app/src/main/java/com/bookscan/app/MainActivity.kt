@@ -4,14 +4,18 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.MotionEvent
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -48,6 +52,12 @@ class MainActivity : AppCompatActivity() {
     private var sessionName = ""
     private var shotCount = 0
 
+    private var lastShotSignature: IntArray? = null
+    private var pendingSignature: IntArray? = null
+    private var pendingQuad: FloatArray? = null
+    private var pendingSrcW = 0
+    private var pendingSrcH = 0
+    private var lastUri: Uri? = null
     private var goodSince = 0L
     private var lastShotAt = 0L
     private var lastFocusAt = 0L
@@ -75,6 +85,8 @@ class MainActivity : AppCompatActivity() {
         ui.shutter.setOnClickListener { capture() }
         ui.newSession.setOnClickListener { newSession() }
         ui.makePdf.setOnClickListener { makePdf() }
+        ui.thumb.setOnClickListener { showLastPhoto() }
+        ui.openFolder.setOnClickListener { openFolder() }
         ui.preview.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) focusAt(event.x, event.y)
             true
@@ -95,6 +107,10 @@ class MainActivity : AppCompatActivity() {
     private fun newSession() {
         sessionName = SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date())
         shotCount = 0
+        lastShotSignature = null
+        lastUri = null
+        ui.thumb.visibility = View.GONE
+        ui.thumbBadge.visibility = View.GONE
         updateCount()
         ui.status.text = "새 묶음 — ${PhotoStore.folderHint(sessionName)}"
     }
@@ -185,6 +201,7 @@ class MainActivity : AppCompatActivity() {
             !r.brightOk -> if (r.brightness < PageDetector.BRIGHT_MIN) "더 밝은 곳에서 찍어 주세요"
             else "빛이 너무 셉니다 — 반사를 피해 주세요"
             !r.skewOk -> "책 위에서 똑바로 내려다보세요"
+            PageDetector.sameScene(r.signature, lastShotSignature) -> "이미 찍은 쪽입니다 — 다음 쪽으로 넘기세요"
             else -> "지금 찍으세요 ✓"
         }
         val green = ContextCompat.getColor(this, R.color.ok)
@@ -194,9 +211,13 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         if (r.allOk) {
             if (goodSince == 0L) goodSince = now
-            if (ui.autoShot.isChecked && !capturing &&
-                now - goodSince > 800 && now - lastShotAt > 1800
-            ) capture()
+            pendingQuad = r.quad
+            pendingSrcW = r.srcWidth
+            pendingSrcH = r.srcHeight
+            val newPage = !PageDetector.sameScene(r.signature, lastShotSignature)
+            if (ui.autoShot.isChecked && !capturing && newPage &&
+                now - goodSince > 800 && now - lastShotAt > 1500
+            ) capture(r.signature)
         } else {
             goodSince = 0L
             // 흐릿하면 페이지 가운데에 초점을 다시 맞춘다
@@ -217,8 +238,9 @@ class MainActivity : AppCompatActivity() {
 
     // ── 촬영 ──────────────────────────────────────────────────────
 
-    private fun capture() {
+    private fun capture(signature: IntArray? = null) {
         val capture = imageCapture ?: return
+        pendingSignature = signature ?: pendingSignature
         if (capturing) return
         capturing = true
         val options = try {
@@ -236,11 +258,12 @@ class MainActivity : AppCompatActivity() {
                     lastShotAt = System.currentTimeMillis()
                     goodSince = 0L
                     shotCount++
+                    lastShotSignature = pendingSignature
                     // 저장 뒤 처리에서 나는 오류로 앱이 꺼지지 않게 감싼다
                     try {
                         updateCount()
                         buzz()
-                        ui.status.text = "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+                        finishShot(output.savedUri)
                     } catch (e: Throwable) {
                         ui.status.text = "${shotCount}장째 저장"
                     }
@@ -266,6 +289,90 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
             // 진동이 안 되는 폰이어도 촬영은 계속된다
         }
+    }
+
+    /** 저장된 사진을 윤곽대로 잘라내고 오른쪽 아래 미리보기를 갱신한다. */
+    private fun finishShot(uri: Uri?) {
+        lastUri = uri
+        val quad = pendingQuad
+        val srcW = pendingSrcW
+        val srcH = pendingSrcH
+        val crop = ui.cropOnly.isChecked && quad != null && uri != null
+        ui.status.text = if (crop) "${shotCount}장째 저장 — 윤곽대로 다듬는 중…" else "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+
+        Thread {
+            if (crop) {
+                Cropper.cropToQuad(this, uri!!, quad!!, srcW, srcH)
+            }
+            val thumb = uri?.let { loadThumb(it) }
+            runOnUiThread {
+                if (thumb != null) {
+                    ui.thumb.setImageBitmap(thumb)
+                    ui.thumb.visibility = View.VISIBLE
+                    ui.thumbBadge.text = shotCount.toString()
+                    ui.thumbBadge.visibility = View.VISIBLE
+                }
+                ui.status.text = "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+            }
+        }.start()
+    }
+
+    private fun loadThumb(uri: Uri): android.graphics.Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 400) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 미리보기를 누르면 방금 찍은 사진을 크게 본다. */
+    private fun showLastPhoto() {
+        val uri = lastUri ?: return
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "image/jpeg")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "사진을 열 앱이 없습니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 이번 묶음이 저장된 폴더를 연다(안 되면 갤러리를 연다). */
+    private fun openFolder() {
+        val path = "Pictures/${PhotoStore.ROOT}/$sessionName"
+        val tries = mutableListOf<Intent>()
+        try {
+            val docUri = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents", "primary:$path"
+            )
+            tries += Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(docUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            tries += Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, docUri)
+            }
+        } catch (e: Exception) {
+            // 문서 앱이 없는 폰
+        }
+        tries += Intent(Intent.ACTION_VIEW).setType("image/*")
+
+        for (intent in tries) {
+            try {
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+                // 다음 방법으로
+            }
+        }
+        Toast.makeText(this, "저장 위치: ${PhotoStore.folderHint(sessionName)}", Toast.LENGTH_LONG).show()
     }
 
     // ── PDF로 묶기 ────────────────────────────────────────────────

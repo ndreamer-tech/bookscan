@@ -39,6 +39,8 @@ object PageDetector {
         val sharpness: Double,
         val brightness: Double,
         val skew: Float,
+        /** 장면 지문(8x8 밝기) — 같은 쪽을 또 찍지 않으려고 비교한다 */
+        val signature: IntArray,
     ) {
         val hasQuad get() = quad != null
         val fillOk get() = fill >= FILL_MIN
@@ -63,8 +65,9 @@ object PageDetector {
             Imgproc.resize(gray, small, Size(), scale, scale, Imgproc.INTER_AREA)
             try {
                 val quadSmall = findQuad(small)
+                val signature = signatureOf(small)
                 if (quadSmall == null) {
-                    return Result(null, width, height, 0f, sharpness, brightness, 1f)
+                    return Result(null, width, height, 0f, sharpness, brightness, 1f, signature)
                 }
                 val area = polygonArea(quadSmall)
                 val fill = (area / (small.cols() * small.rows())).toFloat()
@@ -75,7 +78,7 @@ object PageDetector {
                     quad[i * 2] = (quadSmall[i].x / scale).toFloat()
                     quad[i * 2 + 1] = (quadSmall[i].y / scale).toFloat()
                 }
-                return Result(quad, width, height, fill, sharpness, brightness, skew)
+                return Result(quad, width, height, fill, sharpness, brightness, skew, signature)
             } finally {
                 small.release()
             }
@@ -135,6 +138,31 @@ object PageDetector {
         } finally {
             crop.release(); lap.release(); mean.release(); stddev.release()
         }
+    }
+
+    /** 화면을 8x8로 나눈 평균 밝기 — 쪽을 넘겼는지 알아보는 데 쓴다. */
+    private fun signatureOf(small: Mat): IntArray {
+        val tiny = Mat()
+        try {
+            Imgproc.resize(small, tiny, Size(8.0, 8.0), 0.0, 0.0, Imgproc.INTER_AREA)
+            val out = IntArray(64)
+            val buf = ByteArray(64)
+            tiny.get(0, 0, buf)
+            for (i in 0 until 64) out[i] = buf[i].toInt() and 0xFF
+            return out
+        } catch (e: Exception) {
+            return IntArray(64)
+        } finally {
+            tiny.release()
+        }
+    }
+
+    /** 두 장면이 사실상 같은가(쪽을 안 넘겼는가). */
+    fun sameScene(a: IntArray?, b: IntArray?): Boolean {
+        if (a == null || b == null || a.size != b.size || a.isEmpty()) return false
+        var diff = 0
+        for (i in a.indices) diff += abs(a[i] - b[i])
+        return diff / a.size < 9
     }
 
     // ── 페이지 윤곽 ───────────────────────────────────────────────

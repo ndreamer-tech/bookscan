@@ -41,6 +41,53 @@
             android:text="" />
     </LinearLayout>
 
+    <!-- 방금 찍은 사진 미리보기 + 폴더 열기 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="14dp"
+        android:layout_marginBottom="150dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/openFolder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="10dp"
+            android:textSize="13sp"
+            android:text="@string/open_folder" />
+
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <ImageView
+                android:id="@+id/thumb"
+                android:layout_width="72dp"
+                android:layout_height="96dp"
+                android:background="@drawable/thumb_frame"
+                android:padding="3dp"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                android:contentDescription="@string/last_shot" />
+
+            <TextView
+                android:id="@+id/thumbBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:background="#CC000000"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:text="" />
+        </FrameLayout>
+    </LinearLayout>
+
     <!-- 아래쪽 조작부 -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -65,6 +112,16 @@
                 android:textColor="#FFFFFF"
                 android:textSize="15sp" />
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/cropOnly"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:checked="true"
+                android:text="@string/crop_only"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
             <TextView
                 android:id="@+id/count"
                 android:layout_width="0dp"
@@ -72,7 +129,7 @@
                 android:layout_height="wrap_content"
                 android:gravity="end"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="13sp"
                 android:text="" />
         </LinearLayout>
 

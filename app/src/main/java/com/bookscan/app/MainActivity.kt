@@ -384,8 +384,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: return
             dir.mkdirs()
-            File(dir, "진단_$sessionName.txt").appendText(line + "
-")
+            File(dir, "진단_$sessionName.txt").appendText(line + System.lineSeparator())
         } catch (e: Throwable) {
             // 진단 기록 실패는 촬영에 영향을 주지 않는다
         }

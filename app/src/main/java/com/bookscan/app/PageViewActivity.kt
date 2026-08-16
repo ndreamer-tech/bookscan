@@ -1,9 +1,17 @@
 package com.bookscan.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -13,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.bookscan.app.databinding.ActivityPageBinding
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.concurrent.Executors
 
 /**
@@ -56,6 +65,9 @@ class PageViewActivity : AppCompatActivity() {
         }
         ui.pvDelete.setOnClickListener { askDelete() }
         ui.pvRetake.setOnClickListener { retake() }
+        ui.pvCopy.setOnClickListener { copyText() }
+        ui.pvShare.setOnClickListener { shareImage() }
+        ui.pvMore.setOnClickListener { showMore() }
 
         // 손가락으로 좌우로 밀어 쪽을 넘긴다
         val swipe = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -174,6 +186,187 @@ class PageViewActivity : AppCompatActivity() {
                 Toast.makeText(this, "정밀 촬영을 열지 못했습니다 — $message", Toast.LENGTH_LONG).show()
             },
         )
+    }
+
+    // ── 도구줄 ────────────────────────────────────────────────────
+
+    /** 이 쪽의 글자를 통째로 복사한다. */
+    private fun copyText() {
+        val page = pages.getOrNull(at) ?: return
+        workers.execute {
+            val text = PageText.read(this, book, page.name, page.uri)
+            main.post {
+                if (text.isBlank()) {
+                    Toast.makeText(this, "복사할 글자가 없습니다", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
+                val clip = getSystemService(ClipboardManager::class.java)
+                clip?.setPrimaryClip(ClipData.newPlainText("책스캔", text))
+                Toast.makeText(this, "${at + 1}쪽 글자를 복사했습니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** 이 쪽 그림을 보낸다. */
+    private fun shareImage() {
+        val page = pages.getOrNull(at) ?: return
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, page.uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "${at + 1}쪽 보내기"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "보내지 못했습니다", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 이 쪽 글자를 보낸다. */
+    private fun shareText() {
+        val page = pages.getOrNull(at) ?: return
+        workers.execute {
+            val text = PageText.read(this, book, page.name, page.uri)
+            main.post {
+                if (text.isBlank()) {
+                    Toast.makeText(this, "보낼 글자가 없습니다", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                startActivity(Intent.createChooser(send, "${at + 1}쪽 글자 보내기"))
+            }
+        }
+    }
+
+    /** 아래에서 올라오는 더보기 판. */
+    private fun showMore() {
+        val view = layoutInflater.inflate(R.layout.sheet_more, null)
+        val sheet = BottomSheetDialog(this)
+        sheet.setContentView(view)
+
+        fun on(id: Int, action: () -> Unit) {
+            view.findViewById<View>(id).setOnClickListener {
+                sheet.dismiss()
+                action()
+            }
+        }
+        on(R.id.moreReread) { reread() }
+        on(R.id.moreTxt) { savePageText() }
+        on(R.id.moreRetake) { retake() }
+        on(R.id.moreLeft) { rotate(-90) }
+        on(R.id.moreRight) { rotate(90) }
+        on(R.id.moreShareText) { shareText() }
+        on(R.id.moreBookTxt) { saveBookText() }
+        on(R.id.moreDelete) { askDelete() }
+        sheet.show()
+    }
+
+    /** 이 쪽 글자를 새로 인식한다(잘못 읽었을 때). */
+    private fun reread() {
+        val page = pages.getOrNull(at) ?: return
+        showText = true
+        ui.pvBusy.visibility = View.VISIBLE
+        workers.execute {
+            val text = PageText.read(this, book, page.name, page.uri, again = true)
+            main.post {
+                ui.pvBusy.visibility = View.GONE
+                render()
+                Toast.makeText(
+                    this,
+                    if (text.isBlank()) "글자를 찾지 못했습니다" else "다시 읽었습니다",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun savePageText() {
+        val page = pages.getOrNull(at) ?: return
+        val label = "${book}_${at + 1}쪽.txt"
+        workers.execute {
+            val text = PageText.read(this, book, page.name, page.uri)
+            val ok = saveToDownloads(label, text.toByteArray())
+            main.post {
+                Toast.makeText(
+                    this,
+                    if (ok) "내려받기 폴더에 $label" else "저장하지 못했습니다",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private fun saveBookText() {
+        val snapshot = ArrayList(pages)
+        val label = "책스캔_$book.txt"
+        ui.pvBusy.visibility = View.VISIBLE
+        workers.execute {
+            for (page in snapshot) PageText.read(this, book, page.name, page.uri)
+            val ok = saveToDownloads(label, PageText.wholeBook(this, book, snapshot).toByteArray())
+            main.post {
+                ui.pvBusy.visibility = View.GONE
+                Toast.makeText(
+                    this,
+                    if (ok) "내려받기 폴더에 $label" else "저장하지 못했습니다",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private fun saveToDownloads(name: String, bytes: ByteArray): Boolean {
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+            ) ?: return false
+            contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return false
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** 이 쪽 그림을 돌려 그대로 저장한다. */
+    private fun rotate(degrees: Int) {
+        val page = pages.getOrNull(at) ?: return
+        ui.pvBusy.visibility = View.VISIBLE
+        workers.execute {
+            val ok = turn(page, degrees)
+            if (ok) PageText.forget(this, book, page.name)
+            main.post {
+                ui.pvBusy.visibility = View.GONE
+                if (!ok) Toast.makeText(this, "돌리지 못했습니다", Toast.LENGTH_SHORT).show()
+                render()
+            }
+        }
+    }
+
+    private fun turn(page: Library.Page, degrees: Int): Boolean {
+        return try {
+            val source = contentResolver.openInputStream(page.uri)?.use {
+                BitmapFactory.decodeStream(it)
+            } ?: return false
+            val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+            val turned = Bitmap.createBitmap(
+                source, 0, 0, source.width, source.height, matrix, true
+            )
+            contentResolver.openOutputStream(page.uri, "wt")?.use { out ->
+                turned.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            if (turned !== source) turned.recycle()
+            source.recycle()
+            true
+        } catch (e: Throwable) {
+            false
+        }
     }
 
     private fun move(step: Int) {

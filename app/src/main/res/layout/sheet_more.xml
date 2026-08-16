@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#1A1E26"
+    android:padding="18dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="14dp"
+        android:text="더보기"
+        android:textColor="#FFFFFF"
+        android:textSize="19sp"
+        android:textStyle="bold" />
+
+    <GridLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:columnCount="4">
+
+        <LinearLayout android:id="@+id/moreReread" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="🔤" />
+            <TextView style="@style/BookActionText" android:text="다시 읽기" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreTxt" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="📄" />
+            <TextView style="@style/BookActionText" android:text="TXT 만들기" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreRetake" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="📷" />
+            <TextView style="@style/BookActionText" android:text="다시 찍기" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreLeft" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="↺" />
+            <TextView style="@style/BookActionText" android:text="왼쪽 회전" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreRight" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="↻" />
+            <TextView style="@style/BookActionText" android:text="오른쪽 회전" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreShareText" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="✉" />
+            <TextView style="@style/BookActionText" android:text="글자 보내기" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreBookTxt" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="📚" />
+            <TextView style="@style/BookActionText" android:text="책 전체 TXT" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/moreDelete" style="@style/SheetAction">
+            <TextView style="@style/BookActionIcon" android:text="🗑" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="2dp"
+                android:text="삭제하기"
+                android:textColor="#FF6B6B"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </GridLayout>
+</LinearLayout>

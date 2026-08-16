@@ -11,6 +11,7 @@ import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
@@ -97,40 +98,52 @@ class LibraryActivity : AppCompatActivity() {
         }
     }
 
-    /** 새 책 이름을 묻고 촬영으로 넘어간다. */
+    /** 새 책 이름을 묻고 폴더를 만든 뒤 촬영으로 넘어간다. */
     private fun askNewBook() {
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_DONE
             setText(SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date()))
             setSelection(text.length)
         }
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("새 책 이름")
             .setMessage("이 이름으로 폴더가 만들어집니다.")
             .setView(input)
-            .setPositiveButton("찍기 시작") { _, _ ->
-                val wanted = input.text.toString().trim()
-                    .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                if (wanted.isBlank()) {
-                    Toast.makeText(this, "이름을 적어주세요", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                workers.execute {
-                    val name = Library.freshName(this, wanted)
-                    Library.remember(this, name)          // 사진이 없어도 서재에 남는다
-                    val made = Library.createFolders(this, name)   // 폴더부터 만든다
-                    main.post {
-                        Toast.makeText(
-                            this,
-                            if (made) "「$name」 폴더를 만들었습니다" else "「$name」 시작",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        openCamera(name)
-                    }
-                }
-            }
+            .setPositiveButton("찍기 시작") { _, _ -> startBook(input.text.toString()) }
             .setNegativeButton("취소", null)
-            .show()
+            .create()
+        // 키보드의 「완료」로도 바로 만들어지게 한다(그것만 누르고 기다리기 쉽다)
+        input.setOnEditorActionListener { _, _, _ ->
+            dialog.dismiss()
+            startBook(input.text.toString())
+            true
+        }
+        dialog.show()
+    }
+
+    /** 이름을 받아 폴더를 만들고 촬영 방식을 묻는다. */
+    private fun startBook(typed: String) {
+        val wanted = typed.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        if (wanted.isBlank()) {
+            Toast.makeText(this, "이름을 적어주세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+        workers.execute {
+            val name = Library.freshName(this, wanted)
+            Library.remember(this, name)                  // 사진이 없어도 서재에 남는다
+            val made = Library.createFolders(this, name)  // 폴더부터 만든다
+            main.post {
+                Toast.makeText(
+                    this,
+                    if (made) "「$name」 폴더를 만들었습니다"
+                    else "「$name」 시작 — 폴더는 첫 장을 찍을 때 만들어집니다",
+                    Toast.LENGTH_LONG
+                ).show()
+                reload()
+                openCamera(name)
+            }
+        }
     }
 
     /**

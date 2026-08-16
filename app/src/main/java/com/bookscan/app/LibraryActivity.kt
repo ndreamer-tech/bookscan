@@ -125,7 +125,18 @@ class LibraryActivity : AppCompatActivity() {
             .show()
     }
 
-    private var shooting = ""
+    /**
+     * 정밀 촬영 중인 책 이름.
+     *
+     * 구글 스캐너는 딴 화면이라, 그 사이 우리 화면이 정리되면 이 값이 날아간다.
+     * 그러면 찍은 사진을 어디에 넣을지 몰라 그냥 버려졌다 — 그래서 적어 둔다.
+     */
+    private var shooting: String
+        get() = getSharedPreferences("bookscan", MODE_PRIVATE).getString("shooting", "").orEmpty()
+        set(value) {
+            getSharedPreferences("bookscan", MODE_PRIVATE)
+                .edit().putString("shooting", value).apply()
+        }
 
     /** 정밀 촬영(구글 스캐너) 결과를 새 책에 담는다. */
     private val scanner = registerForActivityResult(
@@ -133,13 +144,25 @@ class LibraryActivity : AppCompatActivity() {
     ) { result ->
         val pages = DocScan.pagesOf(result.data)
         val book = shooting
-        if (pages.isEmpty() || book.isBlank()) return@registerForActivityResult
+        if (book.isBlank()) {
+            Toast.makeText(this, "어느 책인지 잃어버렸습니다 — 서재에서 다시 시작해 주세요", Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "찍은 쪽이 없습니다", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        Toast.makeText(this, "${pages.size}쪽 저장 중…", Toast.LENGTH_SHORT).show()
         workers.execute {
             val added = DocScan.store(this, book, pages)
             main.post {
-                Toast.makeText(this, "${added}쪽 저장", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    if (added > 0) "「$book」에 ${added}쪽 저장" else "저장하지 못했습니다",
+                    Toast.LENGTH_LONG
+                ).show()
                 reload()
-                openBook(book)
+                if (added > 0) openBook(book)
             }
         }
     }

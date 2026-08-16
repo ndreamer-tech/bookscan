@@ -11,8 +11,8 @@ android {
         applicationId "com.bookscan.app"
         minSdk 26
         targetSdk 34
-        versionCode 30
-        versionName "4.3"
+        versionCode 31
+        versionName "4.4"
 
         ndk {
             // OpenCV 네이티브 라이브러리 — 요즘 폰만 담아 용량을 줄인다

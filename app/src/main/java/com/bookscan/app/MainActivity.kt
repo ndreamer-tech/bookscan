@@ -354,6 +354,10 @@ class MainActivity : AppCompatActivity() {
                 Cropper.autoCrop(this, uri, sessionName, shotCount + 1, pageMode)
             } else Cropper.Result(false, false)
             if (result.split) shotCount++
+            if (!result.cropped && uri != null) {
+                // 다듬지 못한 사진은 파일 이름으로 표시해 둔다
+                PhotoStore.markUnprocessed(this, uri, sessionName, shotCount)
+            }
             val thumb = uri?.let { loadThumb(it) }
             runOnUiThread {
                 if (thumb != null) {

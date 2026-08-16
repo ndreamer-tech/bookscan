@@ -105,6 +105,30 @@ object PhotoStore {
 
     fun count(context: Context, session: String): Int = photosOf(context, session).size
 
+    /**
+     * 다듬지 못한 사진은 이름 끝에 `_미처리`를 붙여 한눈에 구분되게 한다.
+     * (같은 파일을 그 자리에서 덮어쓰므로 원본용·보정용 폴더가 따로 있는 것이 아니다.)
+     */
+    fun markUnprocessed(context: Context, uri: Uri, session: String, index: Int) {
+        try {
+            val name = String.format("%03d_미처리.jpg", index)
+            if (modern) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                }
+                context.contentResolver.update(uri, values, null, null)
+            } else {
+                val dir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "$ROOT/$session"
+                )
+                File(dir, String.format("%03d.jpg", index)).renameTo(File(dir, name))
+            }
+        } catch (e: Exception) {
+            // 이름을 못 바꿔도 사진은 그대로 있다
+        }
+    }
+
     /** 사람이 읽을 수 있는 저장 위치 안내. */
     fun folderHint(session: String) = "내장메모리 / Pictures / $ROOT / $session"
 }

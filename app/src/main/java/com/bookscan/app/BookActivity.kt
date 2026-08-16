@@ -22,10 +22,6 @@ import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bookscan.app.databinding.ActivityBookBinding
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -96,6 +92,16 @@ class BookActivity : AppCompatActivity() {
     }
 
     private fun say(text: String) = main.post { ui.bookStatus.text = text }
+
+    /** 쪽 하나를 크게 본다(텍스트로 열지도 고를 수 있다). */
+    private fun openPage(index: Int, asText: Boolean) {
+        startActivity(
+            Intent(this, PageViewActivity::class.java)
+                .putExtra(PageViewActivity.EXTRA_BOOK, book)
+                .putExtra(PageViewActivity.EXTRA_AT, index)
+                .putExtra(PageViewActivity.EXTRA_TEXT_FIRST, asText)
+        )
+    }
 
     // ── 순서 고치기 ───────────────────────────────────────────────
 
@@ -225,7 +231,10 @@ class BookActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("텍스트 인식")
-            .setMessage("${pages.size}쪽의 글자를 읽어 하나의 txt 파일로 저장합니다. 인터넷 없이 폰에서 처리합니다.")
+            .setMessage(
+                "${pages.size}쪽의 글자를 읽습니다(인터넷 없이 폰에서). 끝나면 쪽마다 "
+                    + "이미지↔텍스트를 오가며 볼 수 있고, 한 벌짜리 txt도 내려받기 폴더에 저장됩니다."
+            )
             .setPositiveButton("시작") { _, _ -> readText() }
             .setNegativeButton("취소", null)
             .show()
@@ -234,29 +243,22 @@ class BookActivity : AppCompatActivity() {
     private fun readText() {
         val snapshot = ArrayList(pages)
         workers.execute {
-            val reader = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            val out = StringBuilder()
             var done = 0
             for ((i, page) in snapshot.withIndex()) {
                 say("글자 읽는 중… ${i + 1}/${snapshot.size}")
-                val text = try {
-                    val image = InputImage.fromFilePath(this, page.uri)
-                    Tasks.await(reader.process(image)).text
-                } catch (e: Throwable) {
-                    ""
-                }
-                out.append("── ").append(i + 1).append("쪽 ──").append(System.lineSeparator())
-                out.append(text).append(System.lineSeparator()).append(System.lineSeparator())
+                val text = PageText.read(this, book, page.name, page.uri)
                 if (text.isNotBlank()) done++
             }
+            // 한 벌짜리 txt 도 함께 남긴다(PC로 옮겨 쓰기 좋게)
             val name = "책스캔_$book.txt"
-            val saved = saveToDownloads(name, "text/plain", out.toString().toByteArray())
+            val saved = saveToDownloads(
+                name, "text/plain", PageText.wholeBook(this, book, snapshot).toByteArray()
+            )
             main.post {
-                ui.bookStatus.text = if (saved) {
-                    "글자 읽기 끝 — ${done}/${snapshot.size}쪽, 내려받기 폴더에 $name"
-                } else {
-                    "글자는 읽었지만 파일로 저장하지 못했습니다"
-                }
+                ui.bookStatus.text =
+                    "글자 읽기 끝 — ${done}/${snapshot.size}쪽" +
+                        (if (saved) " · 내려받기 폴더에 $name" else "")
+                if (snapshot.isNotEmpty()) openPage(0, true)   // 바로 텍스트로 열어 준다
             }
         }
     }
@@ -473,10 +475,13 @@ class BookActivity : AppCompatActivity() {
                 val bitmap = Library.thumbnail(this@BookActivity, page.uri)
                 main.post { if (holder.image.tag === page.uri) holder.image.setImageBitmap(bitmap) }
             }
-            holder.itemView.setOnClickListener {
+            // 누르면 크게 보기(이미지↔텍스트), 길게 누르면 순서 고치기
+            holder.itemView.setOnClickListener { openPage(position, false) }
+            holder.itemView.setOnLongClickListener {
                 chosen = if (chosen == position) -1 else position
                 ui.pageTools.visibility = if (chosen >= 0) View.VISIBLE else View.GONE
                 notifyDataSetChanged()
+                true
             }
         }
     }

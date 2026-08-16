@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#111318">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="10dp">
+
+        <Button
+            android:id="@+id/pvBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:text="←" />
+
+        <TextView
+            android:id="@+id/pvTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/pvCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#AAB2C0"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ImageView
+            android:id="@+id/pvImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:contentDescription="쪽 그림" />
+
+        <ScrollView
+            android:id="@+id/pvTextBox"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#F7F7F4"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/pvText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="18dp"
+                android:textColor="#16181D"
+                android:textSize="16sp"
+                android:lineSpacingMultiplier="1.35"
+                android:textIsSelectable="true" />
+        </ScrollView>
+
+        <ProgressBar
+            android:id="@+id/pvBusy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#171B22"
+        android:gravity="center_vertical">
+
+        <Button
+            android:id="@+id/pvPrev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="◀ 이전" />
+
+        <Button
+            android:id="@+id/pvMode"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:text="텍스트 보기" />
+
+        <Button
+            android:id="@+id/pvNext"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="다음 ▶" />
+    </LinearLayout>
+</LinearLayout>

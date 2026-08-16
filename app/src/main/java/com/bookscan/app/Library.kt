@@ -69,10 +69,8 @@ object Library {
                     MediaStore.Files.getContentUri("external"), values
                 ) ?: continue
                 context.contentResolver.openOutputStream(uri)?.use { out ->
-                    out.write(
-                        "책스캔 — 「$book」의 $kind 폴더입니다.
-".toByteArray()
-                    )
+                    val note = "책스캔 — 「$book」의 $kind 폴더입니다."
+                    out.write((note + System.lineSeparator()).toByteArray())
                 }
                 made = true
             } catch (e: Exception) {

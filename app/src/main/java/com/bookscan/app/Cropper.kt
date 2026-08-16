@@ -53,7 +53,16 @@ object Cropper {
         try {
             Utils.bitmapToMat(bitmap, mat)
             if (mat.empty()) return Result(false, false)
-            val rough = PageDetector.detectQuadInColor(mat) ?: return Result(false, false)
+            val rough = PageDetector.detectQuadInColor(mat)
+            if (rough == null) {
+                // 페이지 테두리를 못 찾았어도 글자 영역 기준으로 다듬어 저장한다
+                val finished = PageFinisher.finish(mat)
+                try {
+                    return Result(writeMat(context, uri, finished), false)
+                } finally {
+                    finished.release()
+                }
+            }
             // 테두리 직선에 맞춰 모서리를 정밀하게 다듬는다
             val gray = Mat()
             val quad = try {
@@ -100,16 +109,24 @@ object Cropper {
             if (cut > 0) {
                 val leftMat = Mat(warped, Rect(0, 0, cut, warped.rows()))
                 val rightMat = Mat(warped, Rect(cut, 0, warped.cols() - cut, warped.rows()))
+                val leftPage = PageFinisher.finish(leftMat)
+                val rightPage = PageFinisher.finish(rightMat)
                 try {
-                    val savedLeft = writeMat(context, uri, leftMat)
+                    val savedLeft = writeMat(context, uri, leftPage)
                     val rightUri = PhotoStore.newImageUri(context, session, nextIndex)
-                    val savedRight = rightUri != null && writeMat(context, rightUri, rightMat)
+                    val savedRight = rightUri != null && writeMat(context, rightUri, rightPage)
                     return Result(savedLeft, savedLeft && savedRight)
                 } finally {
                     leftMat.release(); rightMat.release()
+                    leftPage.release(); rightPage.release()
                 }
             }
-            return Result(writeMat(context, uri, warped), false)
+            val page = PageFinisher.finish(warped)
+            try {
+                return Result(writeMat(context, uri, page), false)
+            } finally {
+                page.release()
+            }
         } catch (e: Throwable) {
             return Result(false, false)
         } finally {

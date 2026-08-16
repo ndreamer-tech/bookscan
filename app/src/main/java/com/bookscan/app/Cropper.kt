@@ -64,15 +64,15 @@ object Cropper {
             log.append(" 사진 ").append(mat.cols()).append("x").append(mat.rows())
 
             // 학습 모델이 테두리를 잡으면 그 네모부터 반듯하게 편다
-            SmartDetect.prepare(context)
+            Detectors.prepare(context)
             var smartDone = false
-            SmartDetect.quad(bitmap)?.let { corners ->
+            Detectors.quad(bitmap)?.let { corners ->
                 warpQuad(mat, corners)?.let { flat ->
                     mat.release()
                     flat.copyTo(mat)
                     flat.release()
                     smartDone = true
-                    log.append(" 학습검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
+                    log.append(" ").append(Detectors.tag).append("검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
                 }
             }
 

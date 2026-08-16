@@ -49,8 +49,7 @@ object SmartDetect {
         if (found.size != 4) return null
 
         val points = found.map { Point(it.x.toDouble(), it.y.toDouble()) }.toTypedArray()
-        val ordered = order(points)
-        return if (plausible(ordered, bitmap.width, bitmap.height)) ordered else null
+        return check(points, bitmap.width, bitmap.height)
     }
 
     /** 회색 Mat에서 바로 찾기(미리보기용). */
@@ -69,6 +68,13 @@ object SmartDetect {
             rgba.release()
             bitmap?.recycle()
         }
+    }
+
+    /** 네 점을 좌상→우상→우하→좌하로 세우고, 미덥지 않으면 null. */
+    fun check(points: Array<Point>, width: Int, height: Int): Array<Point>? {
+        if (points.size != 4) return null
+        val ordered = order(points)
+        return if (plausible(ordered, width, height)) ordered else null
     }
 
     private fun order(points: Array<Point>): Array<Point> {

@@ -123,6 +123,14 @@
                 android:textSize="15sp" />
 
             <Button
+                android:id="@+id/detector"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textSize="13sp"
+                android:text="검출: 스마트" />
+
+            <Button
                 android:id="@+id/pageMode"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

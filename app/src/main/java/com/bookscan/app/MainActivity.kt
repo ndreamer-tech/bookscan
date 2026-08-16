@@ -305,29 +305,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** 직전 윤곽과 크게 다르지 않으면 살짝 섞어 떨림을 줄인다. */
+    /** 튄 값을 몇 번 참았다가 진짜 움직임일 때만 따라간다. */
+    private var jumpCount = 0
+
+    /**
+     * 안내 네모를 **덜 떨리게** 만든다.
+     *
+     * 폰을 가만히 들고 있어도 검출 결과는 한 프레임마다 조금씩 다르다. 그대로 그리면
+     * 네모가 쉴 새 없이 꿈틀거린다. 그래서
+     *
+     * 1. 아주 조금 움직인 것(폭의 1.5% 미만)은 **손떨림으로 보고 무시**한다
+     * 2. 나머지는 천천히 따라간다(이전 값 88% + 새 값 12%)
+     * 3. 크게 튄 값은 **세 번 잇달아 같은 자리**에서 나올 때만 새 위치로 옮긴다
+     */
     private fun smoothed(r: PageDetector.Result): FloatArray? {
         val quad = r.quad
         if (quad == null) {
             smoothQuad = null
+            jumpCount = 0
             return null
         }
         val prev = smoothQuad
         if (prev == null || prev.size != quad.size) {
             smoothQuad = quad.copyOf()
+            jumpCount = 0
             return smoothQuad
         }
-        val limit = 0.12f * maxOf(r.srcWidth, r.srcHeight)
+        val side = maxOf(r.srcWidth, r.srcHeight)
         var moved = 0f
         for (i in 0 until 4) {
             val dx = quad[i * 2] - prev[i * 2]
             val dy = quad[i * 2 + 1] - prev[i * 2 + 1]
             moved = maxOf(moved, kotlin.math.hypot(dx, dy))
         }
-        if (moved > limit) {          // 다른 곳을 비추기 시작했다 — 새로 잡는다
+
+        if (moved > 0.12f * side) {           // 크게 튀었다 — 바로 믿지 않는다
+            jumpCount++
+            if (jumpCount < 3) return prev    // 두 번까지는 그 자리를 지킨다
             smoothQuad = quad.copyOf()
+            jumpCount = 0
             return smoothQuad
         }
-        val alpha = 0.35f
+        jumpCount = 0
+
+        if (moved < 0.015f * side) return prev   // 손떨림 정도 — 아예 움직이지 않는다
+
+        val alpha = 0.12f
         val out = FloatArray(8)
         for (i in 0 until 8) out[i] = prev[i] * (1 - alpha) + quad[i] * alpha
         smoothQuad = out

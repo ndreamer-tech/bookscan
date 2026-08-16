@@ -39,7 +39,7 @@ object PageFinisher {
                 val matrix = Imgproc.getRotationMatrix2D(center, block.skew, 1.0)
                 Imgproc.warpAffine(
                     working, rotated, matrix, working.size(),
-                    Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE, Core.BORDER_DEFAULT_VALUE
+                    Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE
                 )
                 matrix.release()
                 working.release()

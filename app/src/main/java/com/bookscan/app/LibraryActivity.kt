@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -99,10 +100,50 @@ class LibraryActivity : AppCompatActivity() {
             .show()
     }
 
+    private var shooting = ""
+
+    /** 정밀 촬영(구글 스캐너) 결과를 새 책에 담는다. */
+    private val scanner = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pages = DocScan.pagesOf(result.data)
+        val book = shooting
+        if (pages.isEmpty() || book.isBlank()) return@registerForActivityResult
+        workers.execute {
+            val added = DocScan.store(this, book, pages)
+            main.post {
+                Toast.makeText(this, "${added}쪽 저장", Toast.LENGTH_SHORT).show()
+                reload()
+                openBook(book)
+            }
+        }
+    }
+
+    /** 새 책을 어떻게 찍을지 고른다. */
     private fun openCamera(book: String) {
-        startActivity(
-            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
-        )
+        shooting = book
+        AlertDialog.Builder(this)
+            .setTitle("어떻게 찍을까요")
+            .setItems(arrayOf("정밀 촬영 (구글 인식기)", "기존 촬영 화면")) { _, which ->
+                if (which == 0) {
+                    DocScan.start(
+                        this,
+                        onReady = { sender ->
+                            scanner.launch(
+                                androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                            )
+                        },
+                        onFail = { message ->
+                            Toast.makeText(this, "정밀 촬영을 열지 못했습니다 — $message", Toast.LENGTH_LONG).show()
+                        },
+                    )
+                } else {
+                    startActivity(
+                        Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
+                    )
+                }
+            }
+            .show()
     }
 
     private fun openBook(book: String) {

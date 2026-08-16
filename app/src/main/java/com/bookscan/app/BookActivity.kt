@@ -64,11 +64,7 @@ class BookActivity : AppCompatActivity() {
         ui.pageGrid.adapter = PageAdapter()
 
         ui.bookBack.setOnClickListener { finish() }
-        ui.bookShoot.setOnClickListener {
-            startActivity(
-                Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
-            )
-        }
+        ui.bookShoot.setOnClickListener { askHowToShoot() }
         ui.pageUp.setOnClickListener { movePage(-1) }
         ui.pageDown.setOnClickListener { movePage(1) }
         ui.pageDelete.setOnClickListener { askDelete() }
@@ -141,6 +137,47 @@ class BookActivity : AppCompatActivity() {
             }
             .setNegativeButton("취소", null)
             .show()
+    }
+
+    // ── 촬영 ──────────────────────────────────────────────────────
+
+    /** 정밀 촬영(구글 스캐너)이 돌려준 쪽들을 받는다. */
+    private val scanner = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pages = DocScan.pagesOf(result.data)
+        if (pages.isEmpty()) return@registerForActivityResult
+        say("찍은 ${pages.size}쪽을 넣는 중…")
+        workers.execute {
+            val added = DocScan.store(this, book, pages)
+            val found = Library.pages(this, book)
+            main.post {
+                this.pages.clear(); this.pages.addAll(found)
+                ui.pageGrid.adapter?.notifyDataSetChanged()
+                ui.bookStatus.text = "${added}쪽 추가 — 모두 ${this.pages.size}쪽"
+            }
+        }
+    }
+
+    private fun askHowToShoot() {
+        AlertDialog.Builder(this)
+            .setTitle("어떻게 찍을까요")
+            .setItems(arrayOf("정밀 촬영 (구글 인식기)", "기존 촬영 화면")) { _, which ->
+                if (which == 0) startPrecision() else startActivity(
+                    Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_BOOK, book)
+                )
+            }
+            .show()
+    }
+
+    private fun startPrecision() {
+        DocScan.start(
+            this,
+            onReady = { sender ->
+                scanner.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build())
+            },
+            onFail = { message -> say("정밀 촬영을 열지 못했습니다 — $message") },
+        )
     }
 
     // ── 가져오기 ──────────────────────────────────────────────────

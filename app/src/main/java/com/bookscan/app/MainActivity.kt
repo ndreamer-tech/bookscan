@@ -43,6 +43,11 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /** 서재에서 고른 책 이름(없으면 새 묶음을 만든다) */
+        const val EXTRA_BOOK = "book"
+    }
+
     private lateinit var ui: ActivityMainBinding
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
@@ -129,14 +134,20 @@ class MainActivity : AppCompatActivity() {
     // ── 촬영 묶음(세션) ───────────────────────────────────────────
 
     private fun newSession() {
-        sessionName = SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date())
-        shotCount = 0
+        val given = intent.getStringExtra(EXTRA_BOOK)
+        sessionName = given ?: SimpleDateFormat("yyMMdd_HHmm", Locale.KOREA).format(Date())
+        // 서재에서 「이어 찍기」로 들어오면 이미 찍힌 장수 뒤부터 번호를 잇는다
+        shotCount = if (given != null) PhotoStore.photosIn(this, sessionName, PhotoStore.RAW).size else 0
         lastShotSignature = null
         lastUri = null
         ui.thumb.visibility = View.GONE
         ui.thumbBadge.visibility = View.GONE
         updateCount()
-        ui.status.text = "새 묶음 — ${PhotoStore.folderHint(sessionName)} (원본/처리)"
+        ui.status.text = if (shotCount > 0) {
+            "「$sessionName」 이어 찍기 — ${shotCount}쪽 다음부터"
+        } else {
+            "새 책 — ${PhotoStore.folderHint(sessionName)} (원본/처리)"
+        }
     }
 
     private fun updateCount() {

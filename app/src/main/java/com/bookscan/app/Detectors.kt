@@ -18,6 +18,7 @@ object Detectors {
     enum class Kind(val label: String) {
         SMART("검출: 스마트"),      // SmartCropper (HED 계열 TFLite)
         ALIGNER("검출: 얼라이너"),  // DocAligner (ONNX, 네 점 직접 예측)
+        MINE("검출: 내 모델"),      // 원장님 사진 115장으로 직접 학습시킨 U-Net
         RULE("검출: 규칙"),         // 예전 방식(밝기·윤곽선)
     }
 
@@ -47,6 +48,7 @@ object Detectors {
         when (kind) {
             Kind.SMART -> SmartDetect.prepare(context)
             Kind.ALIGNER -> DocAlignerDetect.prepare(context)
+            Kind.MINE -> MyModelDetect.prepare(context)
             Kind.RULE -> Unit
         }
     }
@@ -55,6 +57,7 @@ object Detectors {
     fun quad(bitmap: Bitmap): Array<Point>? = when (kind) {
         Kind.SMART -> SmartDetect.quad(bitmap)
         Kind.ALIGNER -> DocAlignerDetect.quad(bitmap)
+        Kind.MINE -> MyModelDetect.quad(bitmap)
         Kind.RULE -> null
     }
 
@@ -82,6 +85,7 @@ object Detectors {
         return when (kind) {
             Kind.SMART -> SmartDetect.usable
             Kind.ALIGNER -> DocAlignerDetect.usable
+            Kind.MINE -> MyModelDetect.usable
             Kind.RULE -> false
         }
     }
@@ -90,6 +94,7 @@ object Detectors {
     val tag get() = when (kind) {
         Kind.SMART -> "스마트"
         Kind.ALIGNER -> "얼라이너"
+        Kind.MINE -> "내모델"
         Kind.RULE -> "규칙"
     }
 }

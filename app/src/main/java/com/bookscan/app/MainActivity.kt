@@ -61,6 +61,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingSignature: IntArray? = null
     private var lastUri: Uri? = null
     private var pageMode = Cropper.PageMode.AUTO
+    /** 켜면 찍기만 하고 다듬기는 나중에(책 화면의 「다시 다듬기」) 한다 */
+    private var fastMode = false
     private var smoothQuad: FloatArray? = null
     private var cvReady = false
     private var cvError = ""
@@ -97,6 +99,14 @@ class MainActivity : AppCompatActivity() {
         ui.thumb.setOnClickListener { showLastPhoto() }
         ui.openFolder.setOnClickListener { openFolder() }
         ui.pageMode.setOnClickListener { cyclePageMode() }
+        ui.fastMode.setOnCheckedChangeListener { _, on ->
+            fastMode = on
+            ui.status.text = if (on) {
+                "빠르게 — 찍기만 하고 다듬기는 나중에(책 화면 ⋯ 「다시 다듬기」)"
+            } else {
+                "찍을 때마다 잘라 다듬습니다"
+            }
+        }
         ui.openFolder.setOnLongClickListener { shareDiagnostic(); true }
         ui.preview.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) focusAt(event.x, event.y)
@@ -378,11 +388,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 오른쪽 아래 축소 그림만 갱신한다(빠르게 모드). */
+    private fun showThumb(uri: Uri?) {
+        if (uri == null) { updateCount(); return }
+        Thread {
+            val thumb = loadThumb(uri)
+            runOnUiThread {
+                if (thumb != null) {
+                    ui.thumb.setImageBitmap(thumb)
+                    ui.thumb.visibility = View.VISIBLE
+                    ui.thumbBadge.text = shotCount.toString()
+                    ui.thumbBadge.visibility = View.VISIBLE
+                }
+                updateCount()
+            }
+        }.start()
+    }
+
     /** 저장된 사진을 윤곽대로 잘라내고 오른쪽 아래 미리보기를 갱신한다. */
     private fun finishShot(uri: Uri?) {
         lastUri = uri
-        ui.status.text = "${shotCount}장째 저장 — 다듬는 중…"
         val index = shotCount
+
+        if (fastMode) {
+            // 찍기만 하고 넘어간다 — 다듬기는 책 화면에서 한꺼번에
+            ui.status.text = "${shotCount}쪽 저장 — 계속 찍으세요"
+            showThumb(uri)
+            return
+        }
+        ui.status.text = "${shotCount}장째 저장 — 다듬는 중…"
 
         Thread {
             // 원본은 그대로 두고, 다듬은 결과는 '처리' 폴더에 새 파일로 저장한다

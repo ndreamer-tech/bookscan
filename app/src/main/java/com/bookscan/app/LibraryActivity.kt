@@ -124,8 +124,8 @@ class LibraryActivity : AppCompatActivity() {
         shooting = book
         AlertDialog.Builder(this)
             .setTitle("어떻게 찍을까요")
-            .setItems(arrayOf("정밀 촬영 (구글 인식기)", "기존 촬영 화면")) { _, which ->
-                if (which == 0) {
+            .setItems(arrayOf("연속 촬영 (한 번에 쭉)", "정밀 촬영 (한 장씩 확인)")) { _, which ->
+                if (which == 1) {
                     DocScan.start(
                         this,
                         onReady = { sender ->

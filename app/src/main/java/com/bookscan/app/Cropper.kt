@@ -63,6 +63,17 @@ object Cropper {
             if (mat.empty()) return Result(false, false, "빈사진")
             log.append(" 사진 ").append(mat.cols()).append("x").append(mat.rows())
 
+            // 학습 모델이 테두리를 잡으면 그 네모부터 반듯하게 편다
+            SmartDetect.prepare(context)
+            SmartDetect.quad(bitmap)?.let { corners ->
+                warpQuad(mat, corners)?.let { flat ->
+                    mat.release()
+                    flat.copyTo(mat)
+                    flat.release()
+                    log.append(" 학습검출O(").append(mat.cols()).append("x").append(mat.rows()).append(")")
+                }
+            }
+
             // 펼친 책을 좌·우로 나눌지 정한다(자동은 가로로 넓을 때만)
             val spread = when (mode) {
                 PageMode.SINGLE -> false
@@ -97,6 +108,29 @@ object Cropper {
             return Result(false, false, "오류")
         } finally {
             mat.release(); bitmap.recycle()
+        }
+    }
+
+    /** 네 귀퉁이를 직사각형으로 편다. */
+    private fun warpQuad(src: Mat, q: Array<Point>): Mat? {
+        return try {
+            val width = ((dist(q[0], q[1]) + dist(q[3], q[2])) / 2).toInt()
+            val height = ((dist(q[0], q[3]) + dist(q[1], q[2])) / 2).toInt()
+            if (width < 150 || height < 150) return null
+            val source = MatOfPoint2f(q[0], q[1], q[2], q[3])
+            val target = MatOfPoint2f(
+                Point(0.0, 0.0), Point(width - 1.0, 0.0),
+                Point(width - 1.0, height - 1.0), Point(0.0, height - 1.0)
+            )
+            val matrix = Imgproc.getPerspectiveTransform(source, target)
+            val out = Mat()
+            Imgproc.warpPerspective(
+                src, out, matrix, Size(width.toDouble(), height.toDouble()), Imgproc.INTER_CUBIC
+            )
+            source.release(); target.release(); matrix.release()
+            out
+        } catch (e: Throwable) {
+            null
         }
     }
 

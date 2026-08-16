@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
         ui.makePdf.setOnClickListener { makePdf() }
         ui.thumb.setOnClickListener { showLastPhoto() }
         ui.openFolder.setOnClickListener { openFolder() }
+        SmartDetect.prepare(this)
         ui.pageMode.setOnClickListener { cyclePageMode() }
         ui.fastMode.setOnCheckedChangeListener { _, on ->
             fastMode = on

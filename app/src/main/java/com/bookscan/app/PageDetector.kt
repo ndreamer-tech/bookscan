@@ -67,7 +67,8 @@ object PageDetector {
             val small = Mat()
             Imgproc.resize(gray, small, Size(), scale, scale, Imgproc.INTER_AREA)
             try {
-                val quadSmall = findQuad(small)
+                // 학습 모델(SmartCropper)이 먼저 보고, 못 찾으면 예전 규칙으로
+                val quadSmall = SmartDetect.quadOfGray(small) ?: findQuad(small)
                 val signature = signatureOf(small)
                 if (quadSmall == null) {
                     return Result(null, width, height, 0f, sharpness, brightness, 1f, signature)

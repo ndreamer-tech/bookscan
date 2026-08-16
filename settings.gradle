@@ -10,6 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }   // SmartCropper(학습 모델 테두리 검출)
     }
 }
 

@@ -11,8 +11,8 @@ android {
         applicationId "com.bookscan.app"
         minSdk 26
         targetSdk 34
-        versionCode 23
-        versionName "3.6"
+        versionCode 24
+        versionName "3.7"
 
         ndk {
             // OpenCV 네이티브 라이브러리 — 요즘 폰만 담아 용량을 줄인다
@@ -71,6 +71,9 @@ dependencies {
 
     // 글자 인식(오프라인, 한국어)
     implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+
+    // 테두리 검출(학습 모델, Apache-2.0)
+    implementation 'com.github.pqpo:SmartCropper:v2.1.4'
 
     // 페이지 윤곽 검출
     implementation 'org.opencv:opencv:4.12.0'

@@ -14,6 +14,7 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 
 /** 카메라 화면에서 책 페이지의 네 귀퉁이를 찾고, 지금 찍어도 되는 상태인지 판단한다. */
 object PageDetector {
@@ -167,54 +168,124 @@ object PageDetector {
 
     // ── 페이지 윤곽 ───────────────────────────────────────────────
 
+    /**
+     * 페이지 네 귀퉁이 찾기.
+     *
+     * 표지가 어두운 책, 밝은 책상 등 어떤 조합이든 잡히도록 세 가지로 찾아 보고
+     * 가장 사각형다운 것을 고른다. ①경계선 ②밝은 종이 ③어두운 표지
+     */
     private fun findQuad(small: Mat): Array<Point>? {
         val blurred = Mat()
-        val binary = Mat()
         try {
             Imgproc.GaussianBlur(small, blurred, Size(5.0, 5.0), 0.0)
-            // 종이는 바탕보다 밝다 — 밝기로 종이 덩어리를 잡는다
-            Imgproc.threshold(blurred, binary, 0.0, 255.0, Imgproc.THRESH_BINARY + Imgproc.THRESH_OTSU)
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(9.0, 9.0))
-            Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_CLOSE, kernel, Point(-1.0, -1.0), 2)
-            kernel.release()
-
-            val contours = ArrayList<MatOfPoint>()
-            val hierarchy = Mat()
-            Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-            hierarchy.release()
-            if (contours.isEmpty()) return null
-
-            val biggest = contours.maxByOrNull { Imgproc.contourArea(it) } ?: return null
-            val area = Imgproc.contourArea(biggest)
             val frame = (small.cols() * small.rows()).toDouble()
-            if (area < 0.12 * frame) {
-                contours.forEach { it.release() }
-                return null
+            val found = ArrayList<Pair<Double, Array<Point>>>()
+
+            // ① 경계선 — 색과 무관하게 '물체의 테두리'를 본다
+            val edges = Mat()
+            try {
+                val mid = Core.mean(blurred).`val`[0]
+                Imgproc.Canny(blurred, edges, max(10.0, 0.60 * mid), min(255.0, 1.35 * mid))
+                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(7.0, 7.0))
+                Imgproc.dilate(edges, edges, kernel)
+                Imgproc.morphologyEx(edges, edges, Imgproc.MORPH_CLOSE, kernel, Point(-1.0, -1.0), 2)
+                kernel.release()
+                collectQuads(edges, frame, found)
+            } finally {
+                edges.release()
             }
 
-            val curve = MatOfPoint2f(*biggest.toArray())
-            val approx = MatOfPoint2f()
-            val perimeter = Imgproc.arcLength(curve, true)
-            var corners: Array<Point>? = null
-            for (eps in doubleArrayOf(0.02, 0.03, 0.05)) {
-                Imgproc.approxPolyDP(curve, approx, eps * perimeter, true)
-                if (approx.total() == 4L) {
-                    corners = approx.toArray()
-                    break
+            // ② 밝은 종이 / ③ 어두운 표지
+            for (invert in booleanArrayOf(false, true)) {
+                val binary = Mat()
+                try {
+                    val flag = if (invert) Imgproc.THRESH_BINARY_INV else Imgproc.THRESH_BINARY
+                    Imgproc.threshold(blurred, binary, 0.0, 255.0, flag + Imgproc.THRESH_OTSU)
+                    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(9.0, 9.0))
+                    Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_CLOSE, kernel, Point(-1.0, -1.0), 2)
+                    kernel.release()
+                    collectQuads(binary, frame, found)
+                } finally {
+                    binary.release()
                 }
             }
-            if (corners == null) {
-                // 사각형으로 안 떨어지면 최소외접 사각형으로 대신한다
-                val box = Imgproc.minAreaRect(curve)
-                val pts = arrayOf(Point(), Point(), Point(), Point())
-                box.points(pts)
-                corners = pts
-            }
-            curve.release(); approx.release()
-            contours.forEach { it.release() }
-            return if (corners.size == 4) orderCorners(corners) else null
+
+            val best = found.maxByOrNull { it.first } ?: return null
+            return orderCorners(best.second)
         } finally {
-            blurred.release(); binary.release()
+            blurred.release()
+        }
+    }
+
+    /** 흑백 그림에서 사각형 후보를 뽑아 점수와 함께 모은다. */
+    private fun collectQuads(
+        binary: Mat, frame: Double, into: MutableList<Pair<Double, Array<Point>>>
+    ) {
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        try {
+            Imgproc.findContours(
+                binary, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
+            )
+            contours.sortByDescending { Imgproc.contourArea(it) }
+            for (contour in contours.take(4)) {
+                val area = Imgproc.contourArea(contour)
+                // 화면을 거의 다 덮으면 '못 찾은 것'과 같다(배경째 잡힌 경우)
+                if (area < 0.18 * frame || area > 0.94 * frame) continue
+
+                val curve = MatOfPoint2f(*contour.toArray())
+                val approx = MatOfPoint2f()
+                try {
+                    val perimeter = Imgproc.arcLength(curve, true)
+                    var corners: Array<Point>? = null
+                    for (eps in doubleArrayOf(0.02, 0.03, 0.05)) {
+                        Imgproc.approxPolyDP(curve, approx, eps * perimeter, true)
+                        if (approx.total() == 4L) {
+                            corners = approx.toArray()
+                            break
+                        }
+                    }
+                    if (corners == null) {
+                        val box = Imgproc.minAreaRect(curve)
+                        val pts = arrayOf(Point(), Point(), Point(), Point())
+                        box.points(pts)
+                        corners = pts
+                    }
+                    val quadArea = polygonArea(corners)
+                    if (quadArea < 0.18 * frame || quadArea > 0.94 * frame) continue
+                    // 외곽선이 사각형에 얼마나 들어맞는가(찌그러진 그림자 등을 걸러낸다)
+                    val fitness = area / max(quadArea, 1.0)
+                    if (fitness < 0.72) continue
+                    into.add(quadArea * fitness to corners)
+                } finally {
+                    curve.release(); approx.release()
+                }
+            }
+        } finally {
+            hierarchy.release()
+            contours.forEach { it.release() }
+        }
+    }
+
+    /** 이미 흑백으로 만든 그림에서 바로 네 귀퉁이를 찾는다(찍은 사진 다듬기에 쓴다). */
+    fun detectQuadIn(gray: Mat): FloatArray? {
+        val width = gray.cols()
+        if (width < 200 || gray.rows() < 200) return null
+        val scale = (WORK_WIDTH / width).coerceAtMost(1.0)
+        val small = Mat()
+        try {
+            Imgproc.resize(gray, small, Size(), scale, scale, Imgproc.INTER_AREA)
+            val quad = findQuad(small) ?: return null
+            val out = FloatArray(8)
+            for (i in 0 until 4) {
+                out[i * 2] = (quad[i].x / scale).toFloat()
+                out[i * 2 + 1] = (quad[i].y / scale).toFloat()
+            }
+            return out
+        } catch (e: Throwable) {
+            return null
+        } finally {
+            small.release()
         }
     }
 

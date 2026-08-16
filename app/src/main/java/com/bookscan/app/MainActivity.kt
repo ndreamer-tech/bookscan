@@ -54,9 +54,6 @@ class MainActivity : AppCompatActivity() {
 
     private var lastShotSignature: IntArray? = null
     private var pendingSignature: IntArray? = null
-    private var pendingQuad: FloatArray? = null
-    private var pendingSrcW = 0
-    private var pendingSrcH = 0
     private var lastUri: Uri? = null
     private var goodSince = 0L
     private var lastShotAt = 0L
@@ -211,9 +208,6 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         if (r.allOk) {
             if (goodSince == 0L) goodSince = now
-            pendingQuad = r.quad
-            pendingSrcW = r.srcWidth
-            pendingSrcH = r.srcHeight
             val newPage = !PageDetector.sameScene(r.signature, lastShotSignature)
             if (ui.autoShot.isChecked && !capturing && newPage &&
                 now - goodSince > 800 && now - lastShotAt > 1500
@@ -294,17 +288,11 @@ class MainActivity : AppCompatActivity() {
     /** 저장된 사진을 윤곽대로 잘라내고 오른쪽 아래 미리보기를 갱신한다. */
     private fun finishShot(uri: Uri?) {
         lastUri = uri
-        val quad = pendingQuad
-        val srcW = pendingSrcW
-        val srcH = pendingSrcH
-        // 윤곽이 잡혔으면 언제나 그 안만 남긴다(배경·책상은 필요 없다)
-        val crop = quad != null && uri != null
-        ui.status.text = if (crop) "${shotCount}장째 저장 — 윤곽대로 다듬는 중…" else "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+        ui.status.text = "${shotCount}장째 저장 — 윤곽대로 다듬는 중…"
 
         Thread {
-            if (crop) {
-                Cropper.cropToQuad(this, uri!!, quad!!, srcW, srcH)
-            }
+            // 사진 자체에서 페이지 윤곽을 다시 찾아 그 안만 남긴다
+            val cropped = uri != null && Cropper.autoCrop(this, uri)
             val thumb = uri?.let { loadThumb(it) }
             runOnUiThread {
                 if (thumb != null) {
@@ -313,7 +301,11 @@ class MainActivity : AppCompatActivity() {
                     ui.thumbBadge.text = shotCount.toString()
                     ui.thumbBadge.visibility = View.VISIBLE
                 }
-                ui.status.text = "${shotCount}장째 저장 — 다음 쪽으로 넘기세요"
+                ui.status.text = if (cropped) {
+                    "${shotCount}장째 — 윤곽대로 잘라 저장 · 다음 쪽으로"
+                } else {
+                    "${shotCount}장째 — 윤곽을 못 찾아 통째로 저장(배경 포함)"
+                }
             }
         }.start()
     }

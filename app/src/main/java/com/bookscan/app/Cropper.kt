@@ -25,24 +25,23 @@ object Cropper {
     /** 글자가 잘리지 않게 윤곽을 살짝 넓힌다. */
     private const val MARGIN = 0.015f
 
-    fun cropToQuad(
-        context: Context,
-        uri: Uri,
-        quad: FloatArray,
-        srcWidth: Int,
-        srcHeight: Int,
-    ): Boolean {
+    /**
+     * 찍은 사진에서 페이지 윤곽을 **다시 찾아** 그 안만 남긴다.
+     *
+     * 미리보기에서 찾은 윤곽을 쓰지 않고 사진 자체를 다시 보는 이유:
+     * 사진이 훨씬 또렷하고, 수동으로 찍었을 때도 똑같이 잘리기 때문이다.
+     */
+    fun autoCrop(context: Context, uri: Uri): Boolean {
         val bitmap = decodeUpright(context, uri) ?: return false
         val mat = Mat()
+        val gray = Mat()
         val warped = Mat()
         try {
             Utils.bitmapToMat(bitmap, mat)
-            if (mat.empty() || srcWidth <= 0 || srcHeight <= 0) return false
-
-            // 분석 화면 좌표 → 사진 좌표
-            val sx = mat.cols().toFloat() / srcWidth
-            val sy = mat.rows().toFloat() / srcHeight
-            val points = Array(4) { i -> Point((quad[i * 2] * sx).toDouble(), (quad[i * 2 + 1] * sy).toDouble()) }
+            if (mat.empty()) return false
+            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
+            val quad = PageDetector.detectQuadIn(gray) ?: return false
+            val points = Array(4) { i -> Point(quad[i * 2].toDouble(), quad[i * 2 + 1].toDouble()) }
 
             val cx = points.sumOf { it.x } / 4
             val cy = points.sumOf { it.y } / 4
@@ -75,7 +74,7 @@ object Cropper {
         } catch (e: Throwable) {
             return false
         } finally {
-            mat.release(); warped.release(); bitmap.recycle()
+            mat.release(); gray.release(); warped.release(); bitmap.recycle()
         }
     }
 

@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private var pageMode = Cropper.PageMode.AUTO
     private var smoothQuad: FloatArray? = null
     private var cvReady = false
+    private var cvError = ""
     private var goodSince = 0L
     private var lastShotAt = 0L
     private var lastFocusAt = 0L
@@ -76,16 +77,14 @@ class MainActivity : AppCompatActivity() {
         ui = ActivityMainBinding.inflate(layoutInflater)
         setContentView(ui.root)
 
-        cvReady = try {
-            OpenCVLoader.initLocal()
-        } catch (e: Throwable) {
-            false
-        }
-        if (!cvReady) {
-            Toast.makeText(this, "윤곽 인식 모듈(OpenCV)을 불러오지 못했습니다.", Toast.LENGTH_LONG).show()
-        }
+        cvReady = loadOpenCv()
 
         newSession()
+        writeDiagnostic("시작 v" + BuildConfig.VERSION_NAME + " CV=" +
+            (if (cvReady) "O" else "X (" + cvError + ")"))
+        if (!cvReady) {
+            Toast.makeText(this, "영상처리 모듈 적재 실패: " + cvError, Toast.LENGTH_LONG).show()
+        }
 
         ui.shutter.setOnClickListener { capture() }
         ui.newSession.setOnClickListener { newSession() }
@@ -107,6 +106,24 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         analysisExecutor.shutdown()
+    }
+
+    /** 영상처리 모듈을 올린다. 실패하면 그 이유를 그대로 남긴다. */
+    private fun loadOpenCv(): Boolean {
+        try {
+            System.loadLibrary("opencv_java4")
+            return true
+        } catch (e: Throwable) {
+            cvError = e.message?.take(120) ?: e.javaClass.simpleName
+        }
+        return try {
+            val ok = OpenCVLoader.initLocal()
+            if (!ok && cvError.isEmpty()) cvError = "initLocal=false"
+            ok
+        } catch (e: Throwable) {
+            if (cvError.isEmpty()) cvError = e.message?.take(120) ?: "알 수 없음"
+            false
+        }
     }
 
     // ── 촬영 묶음(세션) ───────────────────────────────────────────

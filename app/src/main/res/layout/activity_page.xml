@@ -38,6 +38,28 @@
             android:layout_height="wrap_content"
             android:textColor="#AAB2C0"
             android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/pvRetake"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:minWidth="0dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:textSize="13sp"
+            android:text="📷 다시" />
+
+        <Button
+            android:id="@+id/pvDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:textSize="13sp"
+            android:text="🗑 삭제" />
     </LinearLayout>
 
     <FrameLayout

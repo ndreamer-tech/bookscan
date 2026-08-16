@@ -31,6 +31,11 @@ object PageText {
         return if (path.exists()) runCatching { path.readText() }.getOrNull() else null
     }
 
+    /** 이 쪽을 다시 찍었으면 읽어 둔 글자를 버린다. */
+    fun forget(context: Context, book: String, page: String) {
+        runCatching { file(context, book, page).delete() }
+    }
+
     /** 이 쪽의 글자 — 없으면 지금 읽어서 남긴다. */
     fun read(context: Context, book: String, page: String, uri: Uri, again: Boolean = false): String {
         if (!again) cached(context, book, page)?.let { return it }

@@ -117,8 +117,16 @@ class LibraryActivity : AppCompatActivity() {
                 }
                 workers.execute {
                     val name = Library.freshName(this, wanted)
-                    Library.remember(this, name)      // 사진이 없어도 서재에 남는다
-                    main.post { openCamera(name) }
+                    Library.remember(this, name)          // 사진이 없어도 서재에 남는다
+                    val made = Library.createFolders(this, name)   // 폴더부터 만든다
+                    main.post {
+                        Toast.makeText(
+                            this,
+                            if (made) "「$name」 폴더를 만들었습니다" else "「$name」 시작",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        openCamera(name)
+                    }
                 }
             }
             .setNegativeButton("취소", null)

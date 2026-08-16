@@ -47,6 +47,41 @@ object Library {
         store.edit().putStringSet(KNOWN, known).apply()
     }
 
+    /**
+     * 책 폴더를 **미리 만든다**.
+     *
+     * 안드로이드 사진 저장소는 빈 폴더를 만들지 못한다. 그래서 작은 안내 파일을
+     * 한 장씩 넣어 폴더가 실제로 생기게 한다 — 찍기 전에도 파일 앱에서 보인다.
+     */
+    fun createFolders(context: Context, book: String): Boolean {
+        var made = false
+        for (kind in listOf(PhotoStore.RAW, PhotoStore.DONE)) {
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "책스캔.txt")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(
+                        MediaStore.MediaColumns.RELATIVE_PATH,
+                        PhotoStore.relativePath(book, kind)
+                    )
+                }
+                val uri = context.contentResolver.insert(
+                    MediaStore.Files.getContentUri("external"), values
+                ) ?: continue
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(
+                        "책스캔 — 「$book」의 $kind 폴더입니다.
+".toByteArray()
+                    )
+                }
+                made = true
+            } catch (e: Exception) {
+                // 이미 있거나 못 만들어도 촬영에는 지장이 없다
+            }
+        }
+        return made
+    }
+
     private fun knownBooks(context: Context): Set<String> =
         context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
             .getStringSet(KNOWN, emptySet()).orEmpty()
